@@ -17,6 +17,7 @@ pub struct Color {
 
 pub struct WidgetColors([Color; WidgetColor::COUNT]);
 
+// Order of declaration is important here!
 #[repr(u8)]
 #[derive(Clone, Copy, EnumCountMacro)]
 pub enum WidgetColor {

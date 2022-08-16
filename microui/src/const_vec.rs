@@ -1,10 +1,13 @@
 use std::{
-    mem::MaybeUninit,
+    mem::{self, MaybeUninit},
     cmp::Ordering,
     ops::{Index, IndexMut},
+    convert::AsRef,
     ptr,
     any
 };
+
+pub type ConstStr<const N: usize> = ConstVec<u8, N>;
 
 pub struct ConstVec<T, const N: usize> {
     index: usize,
@@ -119,14 +122,19 @@ impl<T, const N: usize> ConstVec<T, N> {
     }
 
     #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = &T> {
+    pub unsafe fn set_len(&mut self, len: usize) {
+        self.index = len;
+    }
+
+    #[inline]
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &T> {
         self.items[0..self.index]
             .iter()
             .map(|x| unsafe { x.assume_init_ref() })
     }
 
     #[inline]
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+    pub fn iter_mut(&mut self) -> impl DoubleEndedIterator<Item = &mut T> {
         self.items[0..self.index]
             .iter_mut()
             .map(|x| unsafe { x.assume_init_mut() })
@@ -152,5 +160,12 @@ impl<T, const N: usize> IndexMut<usize> for ConstVec<T, N> {
         unsafe {
             self.items[index].assume_init_mut()
         }
+    }
+}
+
+impl<T, const N: usize> AsRef<[T]> for ConstVec<T, N> {
+    fn as_ref(&self) -> &[T] {
+        // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
+        unsafe { mem::transmute(&self.items[0..self.index]) }
     }
 }

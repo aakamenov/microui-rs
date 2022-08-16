@@ -1,10 +1,10 @@
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, PartialEq, Default)]
 pub struct Vec2 {
     pub x: i32,
     pub y: i32
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, PartialEq, Default)]
 pub struct Rect {
     pub x: i32,
     pub y: i32,
@@ -34,6 +34,8 @@ impl Vec2 {
 }
 
 impl Rect {
+    pub const UNCLIPPED: Self = rect(0, 0, 0x1000000, 0x1000000);
+
     #[inline]
     #[must_use]
     pub fn expand(self, n: i32) -> Rect {

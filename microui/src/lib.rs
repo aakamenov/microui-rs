@@ -1,6 +1,7 @@
 #![feature(new_uninit)]
 
 pub mod const_vec;
+mod text_buf;
 mod geometry;
 mod style;
 mod id;
@@ -8,12 +9,13 @@ mod id;
 pub use geometry::*;
 pub use style::*;
 pub use id::Id;
+pub use text_buf::TextBuf;
 
-use std::{ptr, cmp, hash::Hash};
+use std::{ptr, cmp, mem, fmt::{self, Write}, ops, hash::Hash};
 
 use geometry::{Rect, Vec2, vec2, rect};
 use style::{Style, Color, WidgetColor};
-use const_vec::ConstVec;
+use const_vec::{ConstVec, ConstStr};
 
 pub const COMMAND_LIST_SIZE: usize = 256 * 1024;
 pub const ROOT_LIST_SIZE: usize = 32;
@@ -28,8 +30,8 @@ pub const MAX_FMT: usize = 127;
 pub const MAX_TEXT_STORE: usize = 1024;
 
 pub type DrawFrameFn = fn(ctx: &mut Context, rect: Rect, color_id: WidgetColor);
-pub type TextWidthFn = fn(Font, &str) -> u16;
-pub type TextHeightFn = fn(Font) -> u16;
+pub type TextWidthFn = fn(&Font, &str) -> u16;
+pub type TextHeightFn = fn(&Font) -> u16;
 
 pub type FrameIdx = u64;
 pub type LayoutWidths = [i32; MAX_WIDTHS];
@@ -79,8 +81,7 @@ pub struct Context {
     hover_root: Option<Container>,
     next_hover_root: Option<Container>,
     scroll_target: Option<Container>,
-    number_edit_buf: [u8; MAX_FMT],
-	number_edit_len: usize,
+    number_edit_buf: ConstStr<MAX_FMT>,
 	number_edit_id: Option<Id>,
     command_list: ConstVec<Command, COMMAND_LIST_SIZE>,
     root_list: ConstVec<Container, ROOT_LIST_SIZE>,
@@ -100,9 +101,10 @@ pub struct Context {
     mouse_released: MouseState,
     key_down: ModKeyState,
     key_pressed: ModKeyState,
-    text_input: ConstVec<u8, MAX_TEXT_STORE>
+    text_input: ConstStr<MAX_TEXT_STORE>
 }
 
+#[derive(Clone, Copy, PartialEq)]
 pub enum Icon {
     None,
     Close,
@@ -112,28 +114,29 @@ pub enum Icon {
     Resize
 }
 
-pub enum Response {
-    Active,
-    Submit,
-    Change
+#[derive(Clone, Copy, PartialEq, Default)]
+pub struct Response {
+    pub active: bool,
+    pub submit: bool,
+    pub change: bool
 }
 
 #[derive(Clone, Copy, PartialEq)]
 #[repr(u16)]
 pub enum ContainerOption {
-	AlignCenter = 1 << 0,
-	AlignRight = 1 << 1,
-	NoInteract = 1 << 2,
-	NoFrame = 1 << 3,
-	NoResize = 1 << 4,
-	NoScroll = 1 << 5,
-	NoClose = 1 << 6,
-	NoTitle = 1 << 7,
-	HoldFocus = 1 << 8,
-	AutoSize = 1 << 9,
-	Popup = 1 << 10,
-	Closed = 1 << 11,
-	Expanded = 1 << 12,
+    AlignCenter = 1 << 0,
+    AlignRight = 1 << 1,
+    NoInteract = 1 << 2,
+    NoFrame = 1 << 3,
+    NoResize = 1 << 4,
+    NoScroll = 1 << 5,
+    NoClose = 1 << 6,
+    NoTitle = 1 << 7,
+    HoldFocus = 1 << 8,
+    AutoSize = 1 << 9,
+    Popup = 1 << 10,
+    Closed = 1 << 11,
+    Expanded = 1 << 12,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -151,13 +154,14 @@ pub enum ModKey {
     Ctrl = 1 << 1,
     Alt = 1 << 2,
     Backspace = 1 << 3,
-    Enter = 1 << 4
+    Return = 1 << 4
 }
 
 impl_flags!(pub ContainerOptions, ContainerOption, u16);
 impl_flags!(MouseState, MouseButton, u8);
 impl_flags!(ModKeyState, ModKey, u8);
 
+#[derive(Clone)]
 pub struct Font;
 
 pub enum Command {
@@ -174,12 +178,13 @@ pub enum Command {
         text: String
     },
     Icon {
+        id: Icon,
         rect: Rect,
         color: Color
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Layout {
     body: Rect,
     next: Rect,
@@ -200,7 +205,7 @@ pub enum LayoutType {
     Absolute
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Container {
     pub rect: Rect,
     pub body: Rect,
@@ -210,6 +215,11 @@ pub struct Container {
     pub open: bool,
     head: *const Command,
     tail: *const Command
+}
+
+pub enum TextBoxBuf<'a> {
+    Text(&'a mut dyn TextBuf),
+    Numeric
 }
 
 #[derive(Clone, Copy, Default)]
@@ -255,7 +265,6 @@ impl Context {
         ptr.hover_root = None;
         ptr.next_hover_root = None;
         ptr.scroll_target = None;
-        ptr.number_edit_len = 0;
         ptr.number_edit_id = None;
         ptr.mouse_pos = Vec2::ZERO;
         ptr.last_mouse_pos = Vec2::ZERO;
@@ -358,28 +367,19 @@ impl Context {
         })
     }
 
-    pub fn draw_rect(&mut self, rect: Rect, color: Color) {
-        let rect = rect.intersect(self.clip_rect());
-
-        if rect.w > 0 && rect.h > 0 {
-            self.command_list.push(Command::Rect {
-                rect,
-                color
-            });
-        }
+    #[inline]
+    pub fn is_focused(&self, id: Id) -> bool {
+        self.focus_id.map_or(false, |x| x == id)
     }
 
     #[inline]
-    pub fn draw_box(&mut self, r: Rect, color: Color) {
-        self.draw_rect(rect(r.x + 1, r.y, r.w - 2, 1), color);
-        self.draw_rect(rect(r.x + 1, r.y + r.h - 1, r.w - 2, 1), color);
-        self.draw_rect(rect(r.x, r.y, 1, r.h), color);
-        self.draw_rect(rect(r.x + r.w - 1, r.y, 1, r.h), color);
+    pub fn is_hovered(&self, id: Id) -> bool {
+        self.hover_id.map_or(false, |x| x == id)
     }
 
     #[inline]
-    pub fn set_focus(&mut self, id: Id) {
-        self.focus_id = Some(id);
+    pub fn set_focus(&mut self, id: Option<Id>) {
+        self.focus_id = id;
         self.updated_focus = true;
     }
 
@@ -413,8 +413,104 @@ impl Context {
     }
 
     #[inline]
-    fn clip_rect(&self) -> Rect {
+    pub fn push_clip_rect(&mut self, rect: Rect) {
+        let last = self.get_clip_rect();
+        self.clip_stack.push(rect.intersect(last));
+    }
+
+    #[inline]
+    pub fn pop_clip_rect(&mut self) -> Option<Rect> {
+        self.clip_stack.pop()
+    }
+
+    #[inline]
+    pub fn set_clip(&mut self, rect: Rect) {
+        self.command_list.push(Command::Clip(rect));
+    }
+
+    #[inline]
+    pub fn get_clip_rect(&self) -> Rect {
         *self.clip_stack.last().unwrap()
+    }
+
+    #[inline(always)]
+    fn get_id_addr(&self, item: &impl fmt::Pointer) -> Id {
+        Id::new(format!("{:p}", item), self.id_stack.len() as u64)
+    }
+}
+
+//============================================================================
+// Draw
+//============================================================================
+
+impl Context {
+    pub fn draw_rect(&mut self, rect: Rect, color: Color) {
+        let rect = rect.intersect(self.get_clip_rect());
+
+        if rect.w > 0 && rect.h > 0 {
+            self.command_list.push(Command::Rect {
+                rect,
+                color
+            });
+        }
+    }
+
+    #[inline]
+    pub fn draw_box(&mut self, r: Rect, color: Color) {
+        self.draw_rect(rect(r.x + 1, r.y, r.w - 2, 1), color);
+        self.draw_rect(rect(r.x + 1, r.y + r.h - 1, r.w - 2, 1), color);
+        self.draw_rect(rect(r.x, r.y, 1, r.h), color);
+        self.draw_rect(rect(r.x + r.w - 1, r.y, 1, r.h), color);
+    }
+
+    pub fn draw_text(&mut self, font: Font, text: impl Into<String>, pos: Vec2, color: Color) {
+        let text: String = text.into();
+
+        let rect = rect(
+            pos.x,
+            pos.y,
+            (self.text_width)(&font, &text) as i32,
+            (self.text_height)(&font) as i32
+        );
+
+        let clip = self.check_clip(rect);
+        match clip {
+            Clip::None => {},
+            Clip::All => { return; },
+            Clip::Part => self.set_clip(self.get_clip_rect())
+        }
+
+        self.command_list.push(Command::Text {
+            font,
+            pos,
+            color,
+            text
+        });
+
+        // Reset clipping if it was set.
+        if !matches!(clip, Clip::None) {
+            self.set_clip(Rect::UNCLIPPED);
+        }
+    }
+
+    pub fn draw_icon(&mut self, id: Icon, rect: Rect, color: Color) {
+        let clip = self.check_clip(rect);
+        match clip {
+            Clip::None => {},
+            Clip::All => { return; },
+            Clip::Part => self.set_clip(self.get_clip_rect())
+        }
+
+        self.command_list.push(Command::Icon {
+            id,
+            rect,
+            color
+        });
+
+        // Reset clipping if it was set.
+        if !matches!(clip, Clip::None) {
+            self.set_clip(Rect::UNCLIPPED);
+        }
     }
 }
 
@@ -432,11 +528,11 @@ impl Context {
     pub fn get_container_by_name(
         &mut self,
         name: &str,
-        options: Option<ContainerOptions>
+        options: ContainerOptions
     ) -> Option<&mut Container> {
         let id = self.get_id(name);
 
-        self.get_container(id, options.unwrap_or_default())
+        self.get_container(id, options)
     }
 
     fn get_container(&mut self, id: Id, options: ContainerOptions) -> Option<&mut Container> {
@@ -564,18 +660,11 @@ impl Context {
         self.key_down.unset(key);
     }
 
-    /// Panics if the `text` length **in bytes** is longer than [`MAX_TEXT_STORE`].
-    pub fn input_text(&mut self, text: &str) {
-        let bytes = text.as_bytes();
-        assert!(bytes.len() <= self.text_input.capacity());
-
-        unsafe {
-            ptr::copy_nonoverlapping(
-                bytes.as_ptr(),
-                self.text_input.ptr_at_mut(0),
-                bytes.len()
-            )
-        }
+    /// The maximum size of the backing store is [`MAX_TEXT_STORE`].
+    /// Returns the number of bytes written.
+    #[inline]
+    pub fn input_text(&mut self, text: &str) -> usize {
+        self.text_input.push_str(text)
     }
 }
 
@@ -740,5 +829,422 @@ impl Layout {
     pub fn set_next(&mut self, rect: Rect, ty: LayoutType) {
         self.next = rect;
         self.next_type = Some(ty);
+    }
+}
+
+//============================================================================
+// Widgets
+//============================================================================
+
+impl Context {
+    /// `color_id` must be either WidgetColor::Button or WidgetColor::Base.
+    pub fn draw_widget_frame(
+        &mut self,
+        id: Id,
+        rect: Rect,
+        color_id: WidgetColor,
+        options: ContainerOptions
+    ) {
+        if options.is_set(ContainerOption::NoFrame) {
+            return;
+        }
+
+        assert!(matches!(color_id, WidgetColor::Button | WidgetColor::Base));
+
+        let color_id = if self.is_focused(id) {
+            2
+        } else if self.is_hovered(id) {
+            1
+        } else {
+            0
+        } + color_id as u8;
+
+        (self.draw_frame)(self, rect, unsafe { mem::transmute(color_id) });
+    }
+
+    pub fn draw_widget_text(
+        &mut self,
+        text: impl Into<String>,
+        rect: Rect,
+        color_id: WidgetColor,
+        options: ContainerOptions
+    ) {
+        let text: String = text.into();
+        let width = (self.text_width)(&self.style.font, &text) as i32;
+        let height = (self.text_height)(&self.style.font) as i32;
+
+        self.push_clip_rect(rect);
+
+        let mut pos = vec2(0, rect.y + (rect.h - height) / 2);
+        pos.x = if options.is_set(ContainerOption::AlignCenter) {
+            rect.x + (rect.w - width) / 2
+        } else if options.is_set(ContainerOption::AlignRight) {
+            rect.x + rect.w - width - self.style.padding as i32
+        } else {
+            rect.x + self.style.padding as i32
+        };
+        
+        self.draw_text(
+            self.style.font.clone(),
+            text,
+            pos,
+            self.style.colors[color_id]
+        );
+
+        self.pop_clip_rect();
+    }
+
+    pub fn is_mouse_over(&self, rect: Rect) -> bool {
+        rect.overlaps(self.mouse_pos) &&
+            self.get_clip_rect().overlaps(self.mouse_pos) &&
+            self.in_hover_root()
+    }
+
+    pub fn update_widget(&mut self, id: Id, rect: Rect, options: ContainerOptions) {
+        let currently_focused = self.is_focused(id);
+
+        if currently_focused {
+            self.updated_focus = true;
+        }
+
+        if options.is_set(ContainerOption::NoInteract) {
+            return;
+        }
+
+        let mouse_over = self.is_mouse_over(rect);
+
+        if mouse_over && !self.mouse_down() {
+            self.hover_id = Some(id);
+        }
+
+        if currently_focused {
+            if self.mouse_pressed() && !mouse_over {
+                self.set_focus(None);
+            }
+
+            if !self.mouse_down() && options.is_set(ContainerOption::HoldFocus) {
+                self.set_focus(None);
+            }
+        }
+
+        if self.is_hovered(id) {
+            if self.mouse_pressed() {
+                self.set_focus(Some(id));
+            } else if !mouse_over {
+                self.hover_id = None;
+            }
+        }
+    }
+
+    pub fn text(&mut self, text: impl Into<String>) {
+        let text: String = text.into();
+        let color = self.style.colors[WidgetColor::Text];
+
+        self.layout_begin_column();
+
+        let height = (self.text_height)(&self.style.font) as i32;
+        self.layout_row(&[-1], height);
+
+        let mut slice = &text[..];
+
+        while slice.len() > 0 {
+            let mut w = 0;
+            let mut start = 0;
+            let mut end = slice.len();
+            let rect = self.layout_next();
+
+            for (i, c) in slice.char_indices().filter(|x| x.1 == ' ' || x.1 == '\n') {
+                let word = &slice[start..i];
+                w += (self.text_width)(&self.style.font, word) as i32;
+
+                if w > rect.w && start != 0 {
+                    end = start;
+                    break;
+                }
+
+                w += (self.text_width)(&self.style.font, &slice[i..i+1]) as i32;
+
+                if c == '\n' {
+                    end = i + 1;
+                    break;
+                }
+
+                start = i + 1;
+            }
+
+            self.draw_text(
+                self.style.font.clone(),
+                &slice[..end],
+                vec2(rect.x, rect.y),
+                color
+            );
+
+            slice = &slice[end..];
+        }
+
+        self.layout_end_column();
+    }
+
+    pub fn label(&mut self, text: impl Into<String>) {
+        let text = text.into();
+        let layout = self.layout_next();
+
+        self.draw_widget_text(
+            text,
+            layout,
+            WidgetColor::Text,
+            ContainerOptions::default()
+        );
+    }
+
+    pub fn button(
+        &mut self,
+        label: impl Into<String>,
+        icon: Icon,
+        options: Option<ContainerOptions>
+    ) -> Response {
+        let mut resp = Response::default();
+
+        let label: String = label.into();
+        let options = options.unwrap_or(ContainerOptions(ContainerOption::AlignCenter as u16));
+
+        let id = if label.is_empty() {
+            self.get_id_addr(&&icon)
+        } else {
+            self.get_id(&label)
+        };
+
+        let rect = self.layout_next();
+        self.update_widget(id, rect, options);
+
+        if self.mouse_pressed.is_set(MouseButton::Left) && self.is_focused(id) {
+            resp.submit = true;
+        }
+
+        self.draw_widget_frame(id, rect, WidgetColor::Button, options);
+
+        if !label.is_empty() {
+            self.draw_widget_text(label, rect, WidgetColor::Text, options);
+        }
+
+        if !matches!(icon, Icon::None) {
+            self.draw_icon(icon, rect, self.style.colors[WidgetColor::Text]);
+        }
+
+        resp
+    }
+
+    pub fn checkbox(&mut self, label: impl Into<String>, checked: &mut bool) -> Response {
+        let mut resp = Response::default();
+
+        let id = self.get_id_addr(&checked);
+        let r = self.layout_next();
+        let frame = rect(r.x, r.y, r.h, r.h);
+
+        self.update_widget(id, r, ContainerOptions::default());
+
+        if self.mouse_released.is_set(MouseButton::Left) && self.is_hovered(id) {
+            resp.change = true;
+            *checked = !*checked;
+        }
+
+        self.draw_widget_frame(id, frame, WidgetColor::Base, ContainerOptions::default());
+
+        if *checked {
+            self.draw_icon(Icon::Check, frame, self.style.colors[WidgetColor::Text]);
+        }
+
+        let r = rect(r.x + frame.w, r.y, r.w - frame.w, r.h);
+        self.draw_widget_text(label, r, WidgetColor::Text, ContainerOptions::default());
+
+        resp
+    }
+
+    pub fn textbox(&mut self, buf: &mut impl TextBuf, options: ContainerOptions) -> Response {
+        let id = self.get_id_addr(&buf);
+        let rect = self.layout_next();
+
+        self.textbox_raw(TextBoxBuf::Text(buf), id, rect, options)
+    }
+
+    pub fn textbox_float(
+        &mut self,
+        value: &mut f64,
+        rect: Rect,
+        id: Id
+    ) -> bool {
+        if self.mouse_pressed.is_set(MouseButton::Left) &&
+            self.key_down.is_set(ModKey::Shift) &&
+            self.is_hovered(id)
+        {
+            self.number_edit_id = Some(id);
+
+            self.number_edit_buf.clear();
+
+            let _ = write!(
+                &mut self.number_edit_buf,
+                "{:.2}",
+                value
+            );
+        }
+
+        if self.number_edit_id.map_or(false, |x| x == id) {
+            let resp = self.textbox_raw(
+                TextBoxBuf::Numeric,
+                id,
+                rect,
+                ContainerOptions::default()
+            );
+
+            if resp.submit || !self.is_focused(id) {
+                if let Ok(val) = self.number_edit_buf.as_str().parse::<f64>() {
+                    *value = val;
+                }
+
+                self.number_edit_id = None;
+            } else {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub fn textbox_raw(
+        &mut self,
+        buf: TextBoxBuf,
+        id: Id,
+        r: Rect,
+        options: ContainerOptions
+    ) -> Response {
+        let mut resp = Response::default();
+
+        self.update_widget(id, r, ContainerOptions(ContainerOption::HoldFocus as u16));
+
+        let text: String = if self.is_focused(id) {
+            // Handle text input
+            let input = self.text_input.as_str();
+            let buf = match buf {
+                TextBoxBuf::Text(buf) => buf,
+                TextBoxBuf::Numeric => &mut self.number_edit_buf as &mut dyn TextBuf
+            };
+
+            if buf.push_str(input) > 0 {
+                resp.change = true;
+            }
+
+            if self.key_pressed.is_set(ModKey::Backspace) {
+                buf.pop_char();
+                resp.change = true;
+            }
+
+            let text = buf.as_str().into();
+
+            if self.key_pressed.is_set(ModKey::Return) {
+                self.set_focus(None);
+                resp.submit = true;
+            }
+
+            text
+        } else {
+            let buf = match buf {
+                TextBoxBuf::Text(buf) => buf,
+                TextBoxBuf::Numeric => &mut self.number_edit_buf as &mut dyn TextBuf
+            };
+
+            buf.as_str().into()
+        };
+
+        self.draw_widget_frame(id, r, WidgetColor::Base, options);
+
+        if self.is_focused(id) {
+            let color = self.style.colors[WidgetColor::Text];
+            let textw = (self.text_width)(&self.style.font, &text) as i32;
+            let texth = (self.text_height)(&self.style.font) as i32;
+            let offset = r.w - self.style.padding as i32 - textw - 1;
+            let textx = r.x + cmp::min(offset, self.style.padding as i32);
+            let texty = r.y + (r.h - texth) / 2;
+
+            self.push_clip_rect(r);
+            self.draw_text(self.style.font.clone(), text, vec2(textx, texty), color);
+            self.draw_rect(rect(textx + textw, texty, 1, texth), color);
+            self.pop_clip_rect();
+        } else {
+            self.draw_widget_text(text, r, WidgetColor::Text, options);
+        }
+
+        resp
+    }
+
+    pub fn slider(
+        &mut self,
+        value: &mut f64,
+        range: ops::Range<f64>,
+        step: Option<f64>,
+        options: Option<ContainerOptions>
+    ) -> Response {
+        let mut resp = Response::default();
+        let options = options.unwrap_or(ContainerOptions(ContainerOption::AlignCenter as u16));
+
+        let last = *value;
+        let mut v = last;
+        let id = self.get_id_addr(&value);
+        let base = self.layout_next();
+
+        if self.textbox_float(value, base, id) {
+            return Response::default();
+        }
+
+        self.update_widget(id, base, options);
+
+        if self.is_focused(id) && self.mouse_down.is_set(MouseButton::Left) {
+            v = range.start + (self.mouse_pos.x - base.x) as f64 * (range.end - range.start) / base.w as f64;
+
+            if let Some(step) = step {
+                v = ((v + step / 2f64) / step) * step;
+            }
+        }
+
+        v = v.clamp(range.start, range.end);
+        *value = v;
+
+        if last != v {
+            resp.change = true;
+        }
+
+        self.draw_widget_frame(id, base, WidgetColor::Base, options);
+
+        let w = self.style.thumb_size as i32;
+        let x = ((v - range.start) * (base.w - w) as f64 / (range.end - range.start)) as i32;
+
+        let thumb = rect(base.x + x, base.y, w, base.h);
+        self.draw_widget_frame(id, thumb, WidgetColor::Button, options);
+
+        let text = format!("{:.2}", v);
+        self.draw_widget_text(text, base, WidgetColor::Text, options);
+
+        resp
+    }
+
+    fn in_hover_root(&self) -> bool {
+        if self.hover_root.is_none() {
+            return false;
+        }
+
+        let hover_root = self.hover_root.as_ref().unwrap();
+
+        for item in self.container_stack.iter().rev() {
+            if item == hover_root {
+                return true;
+            }
+
+            // Only root containers have their `head` field set
+		    // so stop searching if we've reached the current root container
+            if item.head != ptr::null() {
+                return false;
+            }
+        }
+
+        false
     }
 }
