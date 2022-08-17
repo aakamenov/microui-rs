@@ -82,7 +82,7 @@ pub struct Context {
     next_hover_root: Option<Container>,
     scroll_target: Option<Container>,
     number_edit_buf: ConstStr<MAX_FMT>,
-	number_edit_id: Option<Id>,
+    number_edit_id: Option<Id>,
     command_list: ConstVec<Command, COMMAND_LIST_SIZE>,
     root_list: ConstVec<Container, ROOT_LIST_SIZE>,
     container_stack: ConstVec<Container, CONTAINER_STACK_SIZE>,
@@ -330,7 +330,7 @@ impl Context {
 
         for i in 0..self.root_list.len() {
             // If this is the first container then make the first command jump to it.
-		    // Otherwise set the previous container's tail to jump to this one.
+            // Otherwise set the previous container's tail to jump to this one.
             if i == 0 {
                 if let Some(cmd) = self.command_list.first_mut() {
                     if let Command::Jump(dst) = cmd {
@@ -384,7 +384,7 @@ impl Context {
     }
 
     #[inline(always)]
-    pub fn get_id(&self, item: impl Hash) -> Id {
+    pub fn get_id(&self, item: &impl Hash) -> Id {
         Id::new(item, self.id_stack.len() as u64)
     }
 
@@ -435,7 +435,7 @@ impl Context {
 
     #[inline(always)]
     fn get_id_addr(&self, item: &impl fmt::Pointer) -> Id {
-        Id::new(format!("{:p}", item), self.id_stack.len() as u64)
+        Id::new(&format!("{:p}", item), self.id_stack.len() as u64)
     }
 }
 
@@ -530,7 +530,7 @@ impl Context {
         name: &str,
         options: ContainerOptions
     ) -> Option<&mut Container> {
-        let id = self.get_id(name);
+        let id = self.get_id(&name);
 
         self.get_container(id, options)
     }
@@ -1119,7 +1119,10 @@ impl Context {
     ) -> Response {
         let mut resp = Response::default();
 
-        self.update_widget(id, r, ContainerOptions(ContainerOption::HoldFocus as u16));
+        let mut opts_copy = options;
+        opts_copy.set(ContainerOption::HoldFocus);
+
+        self.update_widget(id, r, opts_copy);
 
         let text: String = if self.is_focused(id) {
             // Handle text input
@@ -1222,6 +1225,143 @@ impl Context {
 
         let text = format!("{:.2}", v);
         self.draw_widget_text(text, base, WidgetColor::Text, options);
+
+        resp
+    }
+
+    pub fn number(
+        &mut self,
+        value: &mut f64,
+        step: f64,
+        options: Option<ContainerOptions>
+    ) -> Response {
+        let mut resp = Response::default();
+        let options = options.unwrap_or(ContainerOptions(ContainerOption::AlignCenter as u16));
+
+        let id = self.get_id_addr(&value);
+        let base = self.layout_next();
+        let last = *value;
+
+        if self.textbox_float(value, base, id) {
+            return resp;
+        }
+
+        self.update_widget(id, base, options);
+
+        if self.is_focused(id) && self.mouse_down.is_set(MouseButton::Left) {
+            *value += self.mouse_delta.x as f64 * step;
+        }
+
+        if *value != last {
+            resp.change = true;
+        }
+
+        self.draw_widget_frame(id, base, WidgetColor::Base, options);
+
+        let text = format!("{:.2}", *value);
+        self.draw_widget_text(text, base, WidgetColor::Text, options);
+
+        resp
+    }
+
+    #[inline]
+    pub fn header(
+        &mut self,
+        label: impl Into<String>,
+        options: ContainerOptions
+    ) -> Response {
+        self.header_impl(label, false, options)
+    }
+
+    pub fn begin_treenode(
+        &mut self,
+        label: impl Into<String>,
+        options: ContainerOptions
+    ) -> Response {
+        let resp = self.header_impl(label, true, options);
+
+        if resp.active {
+            if let Some(layout) = self.layout_stack.last_mut() {
+                layout.indent += self.style.indent as i32;
+                self.id_stack.push(self.last_id.unwrap_or_default());
+            }
+        }
+
+        resp
+    }
+
+    pub fn end_treenode(&mut self) {
+        if let Some(layout) = self.layout_stack.last_mut() {
+            layout.indent -= self.style.indent as i32;
+        }
+
+        self.id_stack.pop();
+    }
+
+    fn header_impl(
+        &mut self,
+        label: impl Into<String>,
+        is_treenode: bool,
+        options: ContainerOptions
+    ) -> Response {
+        let label: String = label.into();
+        let id = self.get_id(&label);
+
+        let index = self.treenode_pool.find_by_id(id);
+        let mut active = index.is_some();
+
+        let expanded = if options.is_set(ContainerOption::Expanded) {
+            !active
+        } else {
+            active
+        };
+
+        self.layout_row(&[-1], 0);
+
+        let mut r = self.layout_next();
+        self.update_widget(id, r, ContainerOptions::default());
+
+        if self.mouse_pressed.is_set(MouseButton::Left) && self.is_focused(id) {
+            active = !active;
+        }
+
+        if let Some(index) = index {
+            if active {
+                self.treenode_pool[index].last_update = self.frame;
+            } else {
+                self.treenode_pool[index] = PoolItem::default();
+            }
+        } else if active {
+            self.treenode_pool.init(id, self.frame);
+        }
+
+        if is_treenode && self.is_focused(id) {
+            (self.draw_frame)(self, r, WidgetColor::ButtonHover);
+        } else {
+            self.draw_widget_frame(id, r, WidgetColor::Button, ContainerOptions::default());
+        }
+
+        self.draw_icon(
+            if expanded {
+                Icon::Expanded
+            } else {
+                Icon::Collapsed
+            },
+            rect(r.x, r.y, r.h, r.h),
+            self.style.colors[WidgetColor::Text]
+        );
+
+        let padding = self.style.padding as i32; 
+        r.x += r.h - padding;
+        r.w -= r.h - padding;
+
+        self.draw_widget_text(label, r, WidgetColor::Text, ContainerOptions::default());
+
+        let mut resp = Response::default();
+
+        if expanded {
+            resp.active = true;
+        }
 
         resp
     }

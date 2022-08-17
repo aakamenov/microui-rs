@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 pub struct Id(u64);
 
 impl Id {
-    pub fn new(item: impl Hash, entropy: u64) -> Self {
+    pub fn new(item: &impl Hash, entropy: u64) -> Self {
         let mut hasher = Fnv1a::new(entropy);
         item.hash(&mut hasher);
 
