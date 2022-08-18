@@ -49,6 +49,7 @@ macro_rules! impl_flags {
             }
         
             #[inline(always)]
+            #[allow(dead_code)]
             pub fn is_unset(&self, btn: $variants) -> bool {
                 !self.is_set(btn)
             }
@@ -78,14 +79,14 @@ pub struct Context {
     last_zindex: isize,
     updated_focus: bool,
     frame: FrameIdx,
-    hover_root: Option<Container>,
-    next_hover_root: Option<Container>,
-    scroll_target: Option<Container>,
+    hover_root: Option<usize>,
+    next_hover_root: Option<usize>,
+    scroll_target: Option<usize>,
     number_edit_buf: ConstStr<MAX_FMT>,
     number_edit_id: Option<Id>,
     command_list: ConstVec<Command, COMMAND_LIST_SIZE>,
-    root_list: ConstVec<Container, ROOT_LIST_SIZE>,
-    container_stack: ConstVec<Container, CONTAINER_STACK_SIZE>,
+    root_list: ConstVec<usize, ROOT_LIST_SIZE>,
+    container_stack: ConstVec<usize, CONTAINER_STACK_SIZE>,
     clip_stack: ConstVec<Rect, CLIP_STACK_SIZE>,
     id_stack: ConstVec<Id, ID_STACK_SIZE>,
     layout_stack: ConstVec<Layout, LAYOUT_STACK_SIZE>,
@@ -297,9 +298,9 @@ impl Context {
         assert_eq!(self.id_stack.len(), 0);
         assert_eq!(self.layout_stack.len(), 0);
 
-        if let Some(target) = &mut self.scroll_target {
-            target.scroll.x += self.scroll_delta.x;
-            target.scroll.y += self.scroll_delta.y;
+        if let Some(index) = self.scroll_target {
+            self.containers[index].scroll.x += self.scroll_delta.x;
+            self.containers[index].scroll.y += self.scroll_delta.y;
         }
 
         if !self.updated_focus {
@@ -308,15 +309,18 @@ impl Context {
         self.updated_focus = false;
 
         // Bring hover root to front if mouse was pressed
-        if self.mouse_pressed() &&
-            self.next_hover_root.as_ref().map_or(
-                false,
-                |x| x.zindex < self.last_zindex && x.zindex >= 0
-            )
-        {
-            // Bring to front
-            self.last_zindex += 1;
-            self.next_hover_root.as_mut().unwrap().zindex = self.last_zindex
+        if let Some(index) = self.next_hover_root {
+            if self.mouse_pressed() {
+                let container = &mut self.containers[index];
+
+                if container.zindex < self.last_zindex &&
+                    container.zindex >= 0
+                {
+                    // Bring to front
+                    self.last_zindex += 1;
+                    container.zindex = self.last_zindex;
+                }
+            }
         }
 
         self.key_pressed = ModKeyState::default();
@@ -326,16 +330,23 @@ impl Context {
         self.last_mouse_pos = self.mouse_pos;
         self.text_input.clear();
 
-        self.root_list.sort(|a, b| a.zindex.cmp(&b.zindex));
+        self.root_list.sort_unstable_by(|a, b| {
+            let a_zindex = self.containers[*a].zindex;
+            let b_zindex = self.containers[*b].zindex;
+
+            a_zindex.cmp(&b_zindex)
+        });
 
         for i in 0..self.root_list.len() {
+            let cnt_idx = self.root_list[i];
+
             // If this is the first container then make the first command jump to it.
             // Otherwise set the previous container's tail to jump to this one.
             if i == 0 {
                 if let Some(cmd) = self.command_list.first_mut() {
                     if let Command::Jump(dst) = cmd {
                         unsafe {
-                            *dst = self.root_list[i].head.offset(1)
+                            *dst = self.containers[cnt_idx].head.offset(1)
                         }
                     } else {
                         panic!("Widgets must be drawn inside of a window or a popup.")
@@ -343,14 +354,14 @@ impl Context {
                 }
             } else {
                 unsafe {
-                    self.root_list[i - 1].tail = self.root_list[i].head.offset(1)
+                    self.containers[cnt_idx - 1].tail = self.containers[cnt_idx].head.offset(1)
                 }
             }
 
             // Make the last container's tail jump to the end of command list.
             if i == self.root_list.len() - 1 {
                 unsafe {
-                    self.root_list[i].tail = self.command_list.ptr_at(self.command_list.len())
+                    self.containers[cnt_idx].tail = self.command_list.ptr_at(self.command_list.len())
                 }
             }
         }
@@ -383,9 +394,20 @@ impl Context {
         self.updated_focus = true;
     }
 
-    #[inline(always)]
-    pub fn get_id(&self, item: &impl Hash) -> Id {
-        Id::new(item, self.id_stack.len() as u64)
+    #[inline]
+    pub fn get_id(&mut self, item: &impl Hash) -> Id {
+        let id = Id::new(item, self.id_stack.len() as u64);
+        self.last_id = Some(id);
+
+        id
+    }
+
+    #[inline]
+    pub fn get_id_addr(&mut self, item: &impl fmt::Pointer) -> Id {
+        let id = Id::new(&format!("{:p}", item), self.id_stack.len() as u64);
+        self.last_id = Some(id);
+
+        id
     }
 
     #[inline]
@@ -431,11 +453,6 @@ impl Context {
     #[inline]
     pub fn get_clip_rect(&self) -> Rect {
         *self.clip_stack.last().unwrap()
-    }
-
-    #[inline(always)]
-    fn get_id_addr(&self, item: &impl fmt::Pointer) -> Id {
-        Id::new(&format!("{:p}", item), self.id_stack.len() as u64)
     }
 }
 
@@ -521,7 +538,20 @@ impl Context {
 impl Context {
     #[inline]
     pub fn get_current_container(&self) -> Option<&Container> {
-        self.container_stack.last()
+        if let Some(index) = self.container_stack.last() {
+            Some(&self.containers[*index])
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn get_current_container_mut(&mut self) -> Option<&mut Container> {
+        if let Some(index) = self.container_stack.last() {
+            Some(&mut self.containers[*index])
+        } else {
+            None
+        }
     }
 
     #[inline]
@@ -529,13 +559,13 @@ impl Context {
         &mut self,
         name: &str,
         options: ContainerOptions
-    ) -> Option<&mut Container> {
+    ) -> Option<usize> {
         let id = self.get_id(&name);
 
         self.get_container(id, options)
     }
 
-    fn get_container(&mut self, id: Id, options: ContainerOptions) -> Option<&mut Container> {
+    fn get_container(&mut self, id: Id, options: ContainerOptions) -> Option<usize> {
         let index = self.container_pool.find_by_id(id);
 
         if let Some(index) = index {
@@ -543,7 +573,7 @@ impl Context {
                 self.container_pool[index].last_update = self.frame;
             }
 
-            return Some(&mut self.containers[index]);
+            return Some(index);
         }
 
         if options.is_set(ContainerOption::Closed) {
@@ -559,7 +589,7 @@ impl Context {
             self.last_zindex += 1;
             container.zindex = self.last_zindex;
 
-            Some(container)
+            Some(index)
         } else {
             None
         }
@@ -1298,6 +1328,212 @@ impl Context {
         self.id_stack.pop();
     }
 
+    pub fn begin_window(
+        &mut self,
+        title: impl Into<String>,
+        mut rect: Rect,
+        options: ContainerOptions
+    ) -> bool {
+        let title: String = title.into();
+        assert!(!title.is_empty(), "Window title string is empty.");
+
+        let id = self.get_id(&title);
+        let cnt_idx = self.get_container(id, options);
+
+        if cnt_idx.is_none() {
+            return false;
+        }
+
+        let cnt_idx = cnt_idx.unwrap();
+
+        if !self.containers[cnt_idx].open {
+            return false;
+        }
+
+        self.id_stack.push(id);
+
+        if self.containers[cnt_idx].rect.w == 0 {
+            self.containers[cnt_idx].rect = rect;
+        }
+
+        self.begin_root_container(cnt_idx);
+
+        rect = self.containers[cnt_idx].rect;
+        let mut body = rect;
+
+        if options.is_unset(ContainerOption::NoFrame) {
+            (self.draw_frame)(self, rect, WidgetColor::WindowBackground);
+        }
+
+        // Title bar
+        if options.is_unset(ContainerOption::NoTitle) {
+            let mut title_rect = rect;
+            title_rect.h = self.style.title_height as i32;
+
+            (self.draw_frame)(self, title_rect, WidgetColor::TitleBackground);
+
+            // Title text
+            let id = self.get_id(&"!title");
+            self.update_widget(id, title_rect, options);
+            self.draw_widget_text(title, rect, WidgetColor::TitleText, options);
+
+            if self.is_focused(id) && self.mouse_down.is_set(MouseButton::Left) {
+                self.containers[cnt_idx].rect.x += self.mouse_delta.x;
+                self.containers[cnt_idx].rect.x += self.mouse_delta.x;
+            }
+
+            body.y += title_rect.h;
+            body.h -= title_rect.h;
+
+            // Close button
+            if options.is_unset(ContainerOption::NoClose) {
+                let id = self.get_id(&"!close");
+                let r = Rect {
+                    x: title_rect.x + title_rect.w - title_rect.h,
+                    y: title_rect.y,
+                    w: title_rect.h,
+                    h: title_rect.h
+                };
+
+                title_rect.w -= r.w;
+
+                self.draw_icon(Icon::Close, r, self.style.colors[WidgetColor::TitleText]);
+                self.update_widget(id, r, options);
+
+                if self.is_hovered(id) && self.mouse_released.is_set(MouseButton::Left) {
+                    self.containers[cnt_idx].open = false;
+                }
+            }
+        }
+
+        if options.is_unset(ContainerOption::NoResize) {
+            let sz = self.style.footer_height as i32;
+            let id = self.get_id(&"!resize");
+            let r = Rect {
+                x: rect.x + rect.w - sz,
+                y: rect.y + rect.h - sz,
+                w: sz,
+                h: sz
+            };
+
+            self.draw_icon(Icon::Resize, r, self.style.colors[WidgetColor::Text]);
+            self.update_widget(id, r, options);
+
+            if self.is_focused(id) && self.mouse_down.is_set(MouseButton::Left) {
+                let cnt_rect = self.containers[cnt_idx].rect;
+
+                self.containers[cnt_idx].rect.w = cmp::max(96, cnt_rect.w + self.mouse_delta.x);
+                self.containers[cnt_idx].rect.h = cmp::max(64, cnt_rect.h + self.mouse_delta.y);
+            }
+
+            body.h -= sz;
+        }
+
+        self.push_container_body(cnt_idx, body, options);
+
+        if options.is_set(ContainerOption::AutoSize) {
+            let r = self.layout_stack.last().unwrap().body;
+            let cnt_rect = self.containers[cnt_idx].rect;
+            let content_size = self.containers[cnt_idx].content_size;
+
+            self.containers[cnt_idx].rect.w = content_size.x + (cnt_rect.w - r.w);
+            self.containers[cnt_idx].rect.h = content_size.y + (cnt_rect.h - r.h);
+        }
+
+        // Close if this is a popup window and elsewhere was clicked.
+        if options.is_set(ContainerOption::Popup) &&
+            self.mouse_pressed() &&
+            self.hover_root.map_or(false, |x| x != cnt_idx)
+        {
+            self.containers[cnt_idx].open = false;
+        }
+
+        self.push_clip_rect(self.containers[cnt_idx].body);
+
+        return true;
+    }
+
+    #[inline]
+    pub fn end_window(&mut self) {
+        self.pop_clip_rect();
+        self.end_root_container();
+    }
+
+    pub fn open_popup(&mut self, name: impl Into<String>) {
+        let name: String = name.into();
+        let id = self.get_id(&name);
+
+        let cnt_idx = self.get_container(id, ContainerOptions::default()).unwrap();
+
+        // Set as hover root so popup isn't closed in begin_window()
+        self.hover_root = Some(cnt_idx);
+        self.next_hover_root = Some(cnt_idx);
+
+        // Position at mouse cursor, open and bring to front.
+        self.containers[cnt_idx].rect = rect(self.mouse_pos.x, self.mouse_pos.y, 1, 1);
+        self.containers[cnt_idx].open = true;
+
+        // Bring to front
+        self.last_zindex += 1;
+        self.containers[cnt_idx].zindex = self.last_zindex;
+    }
+
+    pub fn begin_popup(&mut self, name: impl Into<String>) -> bool {
+        let mut options = ContainerOptions::default();
+        options.set(ContainerOption::Popup);
+        options.set(ContainerOption::AutoSize);
+        options.set(ContainerOption::NoResize);
+        options.set(ContainerOption::NoScroll);
+        options.set(ContainerOption::NoTitle);
+        options.set(ContainerOption::Closed);
+
+        self.begin_window(name, Rect::default(), options)
+    }
+    
+    #[inline]
+    pub fn end_popup(&mut self) {
+        self.end_window();
+    }
+
+    pub fn begin_panel(
+        &mut self,
+        name: impl Into<String>,
+        options: ContainerOptions
+    ) -> bool {
+        let name: String = name.into();
+        assert!(!name.is_empty(), "Panel name string is empty.");
+
+        let id = self.get_id(&name);
+        self.id_stack.push(id);
+
+        let cnt_idx = self.get_container(id, options);
+
+        if cnt_idx.is_none() {
+            return false;
+        }
+
+        let cnt_idx = cnt_idx.unwrap();
+
+        let rect = self.layout_next();
+        self.containers[cnt_idx].rect = rect;
+
+        if options.is_unset(ContainerOption::NoFrame) {
+            (self.draw_frame)(self, rect, WidgetColor::PanelBackground);
+        }
+
+        self.container_stack.push(cnt_idx);
+        self.push_container_body(cnt_idx, rect, options);
+        self.push_clip_rect(self.containers[cnt_idx].body);
+
+        return true;
+    }
+
+    #[inline]
+    pub fn end_panel(&mut self) {
+        self.pop_clip_rect();
+        self.pop_container();
+    }
+
     fn header_impl(
         &mut self,
         label: impl Into<String>,
@@ -1366,6 +1602,103 @@ impl Context {
         resp
     }
 
+    fn scrollbars(
+        &mut self,
+        cnt_idx: usize,
+        body: &mut Rect,
+    ) {
+        let scrollbar_size = self.style.scrollbar_size as i32;
+        let padding = self.style.padding as i32;
+
+        let mut content_size = self.containers[cnt_idx].content_size;
+        content_size.x += padding * 2;
+        content_size.y += padding * 2;
+
+        self.push_clip_rect(*body);
+
+
+        let container = &self.containers[cnt_idx];
+        // Resize body to make room for scrollbars.
+        if content_size.y > container.body.h {
+            body.w -= scrollbar_size;
+        }
+
+        if content_size.x > container.body.w {
+            body.h -= scrollbar_size;
+        }
+
+        self.scrollbar_v(cnt_idx, body, Vec2::ZERO, "!scrollbarv");
+        self.scrollbar_h(cnt_idx, body, Vec2::ZERO, "!scrollbarh");
+
+        self.pop_clip_rect();
+    }
+
+    fn push_container_body(
+        &mut self,
+        cnt_idx: usize,
+        mut body: Rect,
+        options: ContainerOptions
+    ) {
+        if options.is_unset(ContainerOption::NoScroll) {
+            self.scrollbars(cnt_idx, &mut body);
+        }
+
+        self.push_layout(
+            body.expand(-(self.style.padding as i32)),
+            self.containers[cnt_idx].scroll
+        );
+        self.containers[cnt_idx].body = body;
+    }
+
+    fn begin_root_container(&mut self, cnt_idx: usize) {
+        self.container_stack.push(cnt_idx);
+
+        // Push container to roots list and push head command.
+        self.root_list.push(cnt_idx);
+        self.command_list.push(Command::Jump(ptr::null()));
+
+        unsafe {
+            self.containers[cnt_idx].head = self.command_list.ptr_at(
+                self.command_list.len() - 1
+            );
+        }
+
+        // Set as hover root if the mouse is overlapping this container
+        // and it has a higher zindex than the current hover root.
+        if self.containers[cnt_idx].rect.overlaps(self.mouse_pos) &&
+            self.next_hover_root.map_or(
+                false,
+                |x| self.containers[cnt_idx].zindex > self.containers[x].zindex
+            )
+        {
+            self.next_hover_root = Some(cnt_idx);
+        }
+
+        // Clipping is reset here in case a root-container is made within
+        // another root-containers's begin/end block; this prevents the inner
+        // root-container being clipped to the outer.
+        self.clip_stack.push(Rect::UNCLIPPED);
+    }
+
+    fn end_root_container(&mut self) {
+        // Push tail 'goto' jump command and set head 'skip' command.
+        // The final steps on initing these are done in end()
+        let index = *self.container_stack.last().unwrap();
+        self.command_list.push(Command::Jump(ptr::null()));
+
+        unsafe {
+            self.containers[index].tail = self.command_list.ptr_at(
+                self.command_list.len() - 1
+            );
+            self.containers[index].head = self.command_list.ptr_at(
+                self.command_list.len()
+            );
+        }
+
+        self.pop_clip_rect();
+        self.pop_container();
+    }
+
     fn in_hover_root(&self) -> bool {
         if self.hover_root.is_none() {
             return false;
@@ -1373,18 +1706,69 @@ impl Context {
 
         let hover_root = self.hover_root.as_ref().unwrap();
 
-        for item in self.container_stack.iter().rev() {
-            if item == hover_root {
+        for index in self.container_stack.iter().rev() {
+            if index == hover_root {
                 return true;
             }
 
             // Only root containers have their `head` field set
-		    // so stop searching if we've reached the current root container
-            if item.head != ptr::null() {
+            // so stop searching if we've reached the current root container
+            if self.containers[*index].head != ptr::null() {
                 return false;
             }
         }
 
         false
     }
+}
+
+macro_rules! scrollbar {
+    ($name:ident, $x:ident, $y:ident, $w:ident, $h:ident) => {
+        fn $name(
+            &mut self,
+            cnt_idx: usize,
+            body: &mut Rect,
+            content_size: Vec2,
+            id_str: &'static str,
+        ) {
+            let maxscroll = content_size.$y - body.$h;
+
+            if maxscroll > 0 && body.$h > 0 {
+                let id = self.get_id(&id_str);
+
+                let mut base = *body;
+                base.$x = body.$x + body.$w;
+                base.w = self.style.scrollbar_size as i32;
+
+                self.update_widget(id, base, ContainerOptions::default());
+
+                if self.is_focused(id) && self.mouse_down.is_set(MouseButton::Left) {
+                    self.containers[cnt_idx].scroll.$y += self.mouse_delta.$y * content_size.$y / base.$h;
+                }
+
+                self.containers[cnt_idx].scroll.$y = self.containers[cnt_idx].scroll.$y.clamp(0, maxscroll);
+
+                (self.draw_frame)(self, base, WidgetColor::ScrollBase);
+
+                let mut thumb = base;
+                thumb.$h = cmp::max(self.style.thumb_size as i32, base.$h * body.$h / content_size.$y);
+                thumb.$y += self.containers[cnt_idx].scroll.$y * (base.$h - thumb.$h) / maxscroll;
+
+                (self.draw_frame)(self, thumb, WidgetColor::ScrollThumb);
+
+                // Set this as the scroll_target (will get scrolled on mousewheel)
+                // if the mouse is over it
+                if self.is_mouse_over(*body) {
+                    self.scroll_target = Some(cnt_idx);
+                }
+            } else {
+                self.containers[cnt_idx].scroll.$y = 0;
+            }
+        }
+    };
+}
+
+impl Context {
+    scrollbar!(scrollbar_v, x, y, w, h);
+    scrollbar!(scrollbar_h, y, x, h, w);
 }

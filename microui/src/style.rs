@@ -45,7 +45,7 @@ pub struct Style {
     pub indent: u16,
     pub title_height: u16,
     pub footer_height: u16,
-    pub scrollbar_size: i32,
+    pub scrollbar_size: u16,
     pub thumb_size: u16,
     pub colors: WidgetColors
 }

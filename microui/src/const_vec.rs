@@ -88,6 +88,17 @@ impl<T, const N: usize> ConstVec<T, N> {
     }
 
     #[inline]
+    pub fn first(&mut self) -> Option<&T> {
+        if self.index == 0 {
+            None
+        } else {
+            unsafe {
+                Some(self.items[0].assume_init_ref())
+            }
+        }
+    }
+
+    #[inline]
     pub fn first_mut(&mut self) -> Option<&mut T> {
         if self.index == 0 {
             None
@@ -99,7 +110,16 @@ impl<T, const N: usize> ConstVec<T, N> {
     }
 
     #[inline]
-    pub fn sort<F>(&mut self, mut compare: F)
+    pub fn sort_by<F>(&mut self, mut compare: F)
+        where F: FnMut(&T, &T) -> Ordering,
+    {
+        self.items[0..self.index].sort_by(|a, b| unsafe {
+            compare(a.assume_init_ref(), b.assume_init_ref())
+        })
+    }
+
+    #[inline]
+    pub fn sort_unstable_by<F>(&mut self, mut compare: F)
         where F: FnMut(&T, &T) -> Ordering,
     {
         self.items[0..self.index].sort_unstable_by(|a, b| unsafe {
