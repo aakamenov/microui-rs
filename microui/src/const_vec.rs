@@ -24,6 +24,15 @@ impl<T, const N: usize> ConstVec<T, N> {
         }
     }
 
+    pub fn new_zeroed() -> Self {
+        unsafe {
+            Self {
+                index: 0,
+                items: MaybeUninit::zeroed().assume_init()
+            }
+        }
+    }
+
     #[inline]
     pub fn push(&mut self, item: T) {
         assert!(
@@ -158,6 +167,16 @@ impl<T, const N: usize> ConstVec<T, N> {
         self.items[0..self.index]
             .iter_mut()
             .map(|x| unsafe { x.assume_init_mut() })
+    }
+}
+
+impl<T: Default, const N: usize> ConstVec<T, N> {
+    pub fn init_default(&mut self) {
+        for i in 0..self.items.len() {
+            self.items[i].write(T::default());
+        }
+
+        self.index = self.capacity();
     }
 }
 

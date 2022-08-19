@@ -17,7 +17,7 @@ use geometry::{Rect, Vec2, vec2, rect};
 use style::{Style, Color, WidgetColor};
 use const_vec::{ConstVec, ConstStr};
 
-pub const COMMAND_LIST_SIZE: usize = 256 * 1024;
+pub const COMMAND_LIST_SIZE: usize = 4096;
 pub const ROOT_LIST_SIZE: usize = 32;
 pub const CONTAINER_STACK_SIZE: usize = 32;
 pub const CLIP_STACK_SIZE: usize = 32;
@@ -69,9 +69,9 @@ macro_rules! impl_flags {
 
 pub struct Context {
     pub draw_frame: DrawFrameFn,
-    text_width: TextWidthFn,
-    text_height: TextHeightFn,
-    style: Style,
+    pub text_width: TextWidthFn,
+    pub text_height: TextHeightFn,
+    pub style: Style,
     hover_id: Option<Id>,
     focus_id: Option<Id>,
     last_id: Option<Id>,
@@ -249,7 +249,7 @@ fn draw_frame(ctx: &mut Context, rect: Rect, color_id: WidgetColor) {
 
 impl Context {
     pub fn new(text_width: TextWidthFn, text_height: TextHeightFn) -> Box<Self> {
-        let mut c = Box::<Self>::new_uninit();
+        let mut c = Box::<Self>::new_zeroed();
         let mut ptr = unsafe { &mut *c.as_mut_ptr() };
 
         ptr.draw_frame = draw_frame;
@@ -276,6 +276,10 @@ impl Context {
         ptr.mouse_released = MouseState::default();
         ptr.key_down = ModKeyState::default();
         ptr.key_pressed = ModKeyState::default();
+
+        ptr.containers.init_default();
+        ptr.container_pool.init_default();
+        ptr.treenode_pool.init_default();
         
         unsafe {
             c.assume_init()
@@ -403,7 +407,7 @@ impl Context {
     }
 
     #[inline]
-    pub fn get_id(&mut self, item: &impl Hash) -> Id {
+    pub fn create_id(&mut self, item: &impl Hash) -> Id {
         let id = Id::new(item, self.id_stack.len() as u64);
         self.last_id = Some(id);
 
@@ -411,11 +415,16 @@ impl Context {
     }
 
     #[inline]
-    pub fn get_id_addr(&mut self, item: &impl fmt::Pointer) -> Id {
+    pub fn create_id_addr(&mut self, item: &impl fmt::Pointer) -> Id {
         let id = Id::new(&format!("{:p}", item), self.id_stack.len() as u64);
         self.last_id = Some(id);
 
         id
+    }
+
+    #[inline]
+    pub fn pop_id(&mut self) -> Option<Id> {
+        self.id_stack.pop()
     }
 
     #[inline]
@@ -545,30 +554,17 @@ impl Context {
 
 impl Context {
     #[inline]
-    pub fn get_current_container(&self) -> Option<&Container> {
-        if let Some(index) = self.container_stack.last() {
-            Some(&self.containers[*index])
-        } else {
-            None
-        }
+    pub fn current_container_index(&self) -> Option<usize> {
+        self.container_stack.last().cloned()
     }
 
     #[inline]
-    pub fn get_current_container_mut(&mut self) -> Option<&mut Container> {
-        if let Some(index) = self.container_stack.last() {
-            Some(&mut self.containers[*index])
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    pub fn get_container_by_name(
+    pub fn container_index_by_name(
         &mut self,
         name: &str,
         options: ContainerOptions
     ) -> Option<usize> {
-        let id = self.get_id(&name);
+        let id = self.create_id(&name);
 
         self.get_container_impl(id, options)
     }
@@ -620,9 +616,15 @@ impl Context {
 
     #[inline]
     fn pop_container(&mut self) {
+        if let Some(layout) = self.layout_stack.pop() {
+            if let Some(index) = self.current_container_index() {
+                self.containers[index].content_size.x = layout.max.x - layout.body.x;
+                self.containers[index].content_size.y = layout.max.y - layout.body.y;
+            }
+        }
+
         self.container_stack.pop();
-        self.layout_stack.pop();
-        self.id_stack.pop();
+        self.pop_id();
     }
 }
 
@@ -1059,9 +1061,9 @@ impl Context {
         let options = options.unwrap_or(ContainerOptions(ContainerOption::AlignCenter as u16));
 
         let id = if label.is_empty() {
-            self.get_id_addr(&&icon)
+            self.create_id_addr(&&icon)
         } else {
-            self.get_id(&label)
+            self.create_id(&label)
         };
 
         let rect = self.layout_next();
@@ -1087,7 +1089,7 @@ impl Context {
     pub fn checkbox(&mut self, label: impl Into<String>, checked: &mut bool) -> Response {
         let mut resp = Response::default();
 
-        let id = self.get_id_addr(&checked);
+        let id = self.create_id_addr(&checked);
         let r = self.layout_next();
         let frame = rect(r.x, r.y, r.h, r.h);
 
@@ -1111,7 +1113,7 @@ impl Context {
     }
 
     pub fn textbox(&mut self, buf: &mut impl TextBuf, options: ContainerOptions) -> Response {
-        let id = self.get_id_addr(&buf);
+        let id = self.create_id_addr(&buf);
         let rect = self.layout_next();
 
         self.textbox_raw(TextBoxBuf::Text(buf), id, rect, options)
@@ -1241,7 +1243,7 @@ impl Context {
 
         let last = *value;
         let mut v = last;
-        let id = self.get_id_addr(&value);
+        let id = self.create_id_addr(&value);
         let base = self.layout_next();
 
         if self.textbox_float(value, base, id) {
@@ -1288,7 +1290,7 @@ impl Context {
         let mut resp = Response::default();
         let options = options.unwrap_or(ContainerOptions(ContainerOption::AlignCenter as u16));
 
-        let id = self.get_id_addr(&value);
+        let id = self.create_id_addr(&value);
         let base = self.layout_next();
         let last = *value;
 
@@ -1345,7 +1347,7 @@ impl Context {
             layout.indent -= self.style.indent as i32;
         }
 
-        self.id_stack.pop();
+        self.pop_id();
     }
 
     pub fn begin_window(
@@ -1357,7 +1359,7 @@ impl Context {
         let title: String = title.into();
         assert!(!title.is_empty(), "Window title string is empty.");
 
-        let id = self.get_id(&title);
+        let id = self.create_id(&title);
         let cnt_idx = self.get_container_impl(id, options);
 
         if cnt_idx.is_none() {
@@ -1393,7 +1395,7 @@ impl Context {
             (self.draw_frame)(self, title_rect, WidgetColor::TitleBackground);
 
             // Title text
-            let id = self.get_id(&"!title");
+            let id = self.create_id(&"!title");
             self.update_widget(id, title_rect, options);
             self.draw_widget_text(title, rect, WidgetColor::TitleText, options);
 
@@ -1407,7 +1409,7 @@ impl Context {
 
             // Close button
             if options.is_unset(ContainerOption::NoClose) {
-                let id = self.get_id(&"!close");
+                let id = self.create_id(&"!close");
                 let r = Rect {
                     x: title_rect.x + title_rect.w - title_rect.h,
                     y: title_rect.y,
@@ -1428,7 +1430,7 @@ impl Context {
 
         if options.is_unset(ContainerOption::NoResize) {
             let sz = self.style.footer_height as i32;
-            let id = self.get_id(&"!resize");
+            let id = self.create_id(&"!resize");
             let r = Rect {
                 x: rect.x + rect.w - sz,
                 y: rect.y + rect.h - sz,
@@ -1481,7 +1483,7 @@ impl Context {
 
     pub fn open_popup(&mut self, name: impl Into<String>) {
         let name: String = name.into();
-        let id = self.get_id(&name);
+        let id = self.create_id(&name);
 
         let cnt_idx = self.get_container_impl(id, ContainerOptions::default()).unwrap();
 
@@ -1523,7 +1525,7 @@ impl Context {
         let name: String = name.into();
         assert!(!name.is_empty(), "Panel name string is empty.");
 
-        let id = self.get_id(&name);
+        let id = self.create_id(&name);
         self.id_stack.push(id);
 
         let cnt_idx = self.get_container_impl(id, options);
@@ -1561,7 +1563,7 @@ impl Context {
         options: ContainerOptions
     ) -> Response {
         let label: String = label.into();
-        let id = self.get_id(&label);
+        let id = self.create_id(&label);
 
         let index = self.treenode_pool.find_by_id(id);
         let mut active = index.is_some();
@@ -1699,7 +1701,7 @@ impl Context {
     fn end_root_container(&mut self) {
         // Push tail 'goto' jump command and set head 'skip' command.
         // The final steps on initing these are done in end()
-        let index = *self.container_stack.last().unwrap();
+        let index = self.current_container_index().unwrap();
         self.command_list.push(Command::Jump(0));
 
         self.containers[index].tail = Some(self.command_list.len() - 1);
@@ -1753,7 +1755,7 @@ macro_rules! scrollbar {
             let maxscroll = content_size.$y - body.$h;
 
             if maxscroll > 0 && body.$h > 0 {
-                let id = self.get_id(&id_str);
+                let id = self.create_id(&id_str);
 
                 let mut base = *body;
                 base.$x = body.$x + body.$w;
