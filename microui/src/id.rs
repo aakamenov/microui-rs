@@ -37,7 +37,7 @@ impl Hasher for Fnv1a {
 
     fn write(&mut self, bytes: &[u8]) {
         for i in 0..bytes.len() {
-            self.0 = (self.0 ^ bytes[i] as u64) * 1099511628211;
+            self.0 = (self.0 ^ bytes[i] as u64).wrapping_mul(1099511628211);
         }
     }
 }
