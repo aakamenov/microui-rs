@@ -166,7 +166,7 @@ impl_flags!(ModKeyState, ModKey, u8);
 pub struct Font;
 
 pub enum Command {
-    Jump(*const Self),
+    Jump(usize),
     Clip(Rect),
     Rect {
         rect: Rect,
@@ -206,7 +206,7 @@ pub enum LayoutType {
     Absolute
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct Container {
     pub rect: Rect,
     pub body: Rect,
@@ -214,8 +214,8 @@ pub struct Container {
     pub scroll: Vec2,
     pub zindex: isize,
     pub open: bool,
-    head: *const Command,
-    tail: *const Command
+    head: Option<usize>,
+    tail: Option<usize>
 }
 
 pub enum TextBoxBuf<'a> {
@@ -345,23 +345,32 @@ impl Context {
             if i == 0 {
                 if let Some(cmd) = self.command_list.first_mut() {
                     if let Command::Jump(dst) = cmd {
-                        unsafe {
-                            *dst = self.containers[cnt_idx].head.offset(1)
-                        }
+                        *dst = self.containers[cnt_idx].head.unwrap() + 1;
                     } else {
                         panic!("Widgets must be drawn inside of a window or a popup.")
                     }
                 }
             } else {
-                unsafe {
-                    self.containers[cnt_idx - 1].tail = self.containers[cnt_idx].head.offset(1)
+                let tail = self.containers[cnt_idx - 1].tail.unwrap();
+
+                match &mut self.command_list[tail] {
+                    Command::Jump(dst) => {
+                        *dst = self.containers[cnt_idx].head.unwrap() + 1;
+                    },
+                    _ => unreachable!()
                 }
             }
 
             // Make the last container's tail jump to the end of command list.
             if i == self.root_list.len() - 1 {
-                unsafe {
-                    self.containers[cnt_idx].tail = self.command_list.ptr_at(self.command_list.len())
+                let tail = self.containers[cnt_idx].tail.unwrap();
+                let commands_len = self.command_list.len();
+
+                match &mut self.command_list[tail] {
+                    Command::Jump(dst) => {
+                        *dst = commands_len;
+                    },
+                    _ => unreachable!()
                 }
             }
         }
@@ -370,8 +379,7 @@ impl Context {
     pub fn commands(&self) -> impl Iterator<Item = &Command> {
         self.command_list.iter().map(|x| {
             if let Command::Jump(dst) = x {
-                //wicked
-                unsafe { &**dst }
+                &self.command_list[*dst]
             } else {
                 x
             }
@@ -615,21 +623,6 @@ impl Context {
         self.container_stack.pop();
         self.layout_stack.pop();
         self.id_stack.pop();
-    }
-}
-
-impl Default for Container {
-    fn default() -> Self {
-        Self {
-            head: ptr::null(),
-            tail: ptr::null(),
-            rect: Rect::default(),
-            body: Rect::default(),
-            content_size: Vec2::ZERO,
-            scroll: Vec2::default(),
-            zindex: 0,
-            open: false
-        }
     }
 }
 
@@ -1682,13 +1675,9 @@ impl Context {
 
         // Push container to roots list and push head command.
         self.root_list.push(cnt_idx);
-        self.command_list.push(Command::Jump(ptr::null()));
+        self.command_list.push(Command::Jump(0));
 
-        unsafe {
-            self.containers[cnt_idx].head = self.command_list.ptr_at(
-                self.command_list.len() - 1
-            );
-        }
+        self.containers[cnt_idx].head = Some(self.command_list.len() - 1);
 
         // Set as hover root if the mouse is overlapping this container
         // and it has a higher zindex than the current hover root.
@@ -1711,15 +1700,18 @@ impl Context {
         // Push tail 'goto' jump command and set head 'skip' command.
         // The final steps on initing these are done in end()
         let index = *self.container_stack.last().unwrap();
-        self.command_list.push(Command::Jump(ptr::null()));
+        self.command_list.push(Command::Jump(0));
 
-        unsafe {
-            self.containers[index].tail = self.command_list.ptr_at(
-                self.command_list.len() - 1
-            );
-            self.containers[index].head = self.command_list.ptr_at(
-                self.command_list.len()
-            );
+        self.containers[index].tail = Some(self.command_list.len() - 1);
+
+        let head = self.containers[index].head.expect("Called end_root_container() before begin_root_container()");
+        let commands_len = self.command_list.len();
+
+        match &mut self.command_list[head] {
+            Command::Jump(dst) => {
+                *dst = commands_len;
+            },
+            _ => unreachable!()
         }
 
         self.pop_clip_rect();
@@ -1740,7 +1732,7 @@ impl Context {
 
             // Only root containers have their `head` field set
             // so stop searching if we've reached the current root container
-            if self.containers[*index].head != ptr::null() {
+            if self.containers[*index].head.is_some() {
                 return false;
             }
         }
