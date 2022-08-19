@@ -33,8 +33,8 @@ pub type DrawFrameFn = fn(ctx: &mut Context, rect: Rect, color_id: WidgetColor);
 pub type TextWidthFn = fn(&Font, &str) -> u16;
 pub type TextHeightFn = fn(&Font) -> u16;
 
-pub type FrameIdx = u64;
 pub type LayoutWidths = [i32; MAX_WIDTHS];
+type FrameIdx = u64;
 
 macro_rules! impl_flags {
     ($visibility:vis $state:ident, $variants:ty, $size:ty) => {
@@ -562,10 +562,25 @@ impl Context {
     ) -> Option<usize> {
         let id = self.get_id(&name);
 
-        self.get_container(id, options)
+        self.get_container_impl(id, options)
     }
 
-    fn get_container(&mut self, id: Id, options: ContainerOptions) -> Option<usize> {
+    #[inline(always)]
+    pub fn get_container(&self, index: usize) -> &Container {
+        &self.containers[index]
+    }
+
+    #[inline(always)]
+    pub fn get_container_mut(&mut self, index: usize) -> &mut Container {
+        &mut self.containers[index]
+    }
+
+    #[inline(always)]
+    pub fn containers_len(&self) -> usize {
+        self.containers.len()
+    }
+
+    fn get_container_impl(&mut self, id: Id, options: ContainerOptions) -> Option<usize> {
         let index = self.container_pool.find_by_id(id);
 
         if let Some(index) = index {
@@ -580,7 +595,7 @@ impl Context {
             return None;
         }
 
-        if let Some(index) = self.container_pool.init(id, self.frame) {
+        if let Some(index) = self.init_container_pool(id) {
             let container = &mut self.containers[index];
             *container = Container::default();
             container.open = true;
@@ -622,8 +637,20 @@ impl Default for Container {
 // Pool
 //============================================================================
 
+impl Context {
+    #[inline]
+    pub fn init_treenode_pool(&mut self, id: Id) -> Option<usize> {
+        self.treenode_pool.init(id, self.frame)
+    }
+
+    #[inline]
+    pub fn init_container_pool(&mut self, id: Id) -> Option<usize> {
+        self.container_pool.init(id, self.frame)
+    }
+}
+
 impl<const N: usize> ConstVec<PoolItem, N> {
-    pub fn init(&mut self, id: Id, frame: FrameIdx) -> Option<usize> {
+    fn init(&mut self, id: Id, frame: FrameIdx) -> Option<usize> {
         let mut index = None;
         let mut f = frame;
 
@@ -645,7 +672,7 @@ impl<const N: usize> ConstVec<PoolItem, N> {
     }
 
     #[inline]
-    pub fn find_by_id(&self, id: Id) -> Option<usize> {
+    fn find_by_id(&self, id: Id) -> Option<usize> {
         self.iter().position(|x| x.id == id)
     }
 }
@@ -1338,7 +1365,7 @@ impl Context {
         assert!(!title.is_empty(), "Window title string is empty.");
 
         let id = self.get_id(&title);
-        let cnt_idx = self.get_container(id, options);
+        let cnt_idx = self.get_container_impl(id, options);
 
         if cnt_idx.is_none() {
             return false;
@@ -1463,7 +1490,7 @@ impl Context {
         let name: String = name.into();
         let id = self.get_id(&name);
 
-        let cnt_idx = self.get_container(id, ContainerOptions::default()).unwrap();
+        let cnt_idx = self.get_container_impl(id, ContainerOptions::default()).unwrap();
 
         // Set as hover root so popup isn't closed in begin_window()
         self.hover_root = Some(cnt_idx);
@@ -1506,7 +1533,7 @@ impl Context {
         let id = self.get_id(&name);
         self.id_stack.push(id);
 
-        let cnt_idx = self.get_container(id, options);
+        let cnt_idx = self.get_container_impl(id, options);
 
         if cnt_idx.is_none() {
             return false;
@@ -1568,7 +1595,7 @@ impl Context {
                 self.treenode_pool[index] = PoolItem::default();
             }
         } else if active {
-            self.treenode_pool.init(id, self.frame);
+            self.init_treenode_pool(id);
         }
 
         if is_treenode && self.is_focused(id) {
