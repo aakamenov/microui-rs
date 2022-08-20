@@ -165,26 +165,6 @@ impl_flags!(ModKeyState, ModKey, u8);
 #[derive(Clone)]
 pub struct Font;
 
-pub enum Command {
-    Jump(usize),
-    Clip(Rect),
-    Rect {
-        rect: Rect,
-        color: Color
-    },
-    Text {
-        font: Font,
-        pos: Vec2,
-        color: Color,
-        text: String
-    },
-    Icon {
-        id: Icon,
-        rect: Rect,
-        color: Color
-    }
-}
-
 #[derive(Clone, Default)]
 pub struct Layout {
     body: Rect,
@@ -221,6 +201,44 @@ pub struct Container {
 pub enum TextBoxBuf<'a> {
     Text(&'a mut dyn TextBuf),
     Numeric
+}
+
+pub trait CommandHandler {
+    fn clip_cmd(&mut self, rect: Rect);
+    fn rect_cmd(&mut self, rect: Rect, color: Color);
+    fn text_cmd(
+        &mut self,
+        font: Font,
+        pos: Vec2,
+        color: Color,
+        text: String
+    );
+    fn icon_cmd(
+        &mut self,
+        id: Icon,
+        rect: Rect,
+        color: Color
+    );
+}
+
+enum Command {
+    Jump(usize),
+    Clip(Rect),
+    Rect {
+        rect: Rect,
+        color: Color
+    },
+    Text {
+        font: Font,
+        pos: Vec2,
+        color: Color,
+        text: String
+    },
+    Icon {
+        id: Icon,
+        rect: Rect,
+        color: Color
+    }
 }
 
 #[derive(Clone, Copy, Default)]
@@ -380,14 +398,43 @@ impl Context {
         }
     }
 
-    pub fn commands(&self) -> impl Iterator<Item = &Command> {
-        self.command_list.iter().map(|x| {
-            if let Command::Jump(dst) = x {
-                &self.command_list[*dst]
-            } else {
-                x
+    pub fn handle_commands(&mut self, handler: &mut impl CommandHandler) {
+        let mut i = 0;
+
+        'outer: while i < self.command_list.len() {
+            let mut cmd = unsafe {
+                self.command_list.read_at(i)  
+            };
+
+            while let Command::Jump(dst) = cmd {
+                if dst == self.command_list.len() {
+                    break 'outer;
+                }
+
+                cmd = unsafe {
+                    self.command_list.read_at(dst)
+                };
             }
-        })
+
+            match cmd {
+                Command::Clip(rect) => handler.clip_cmd(rect),
+                Command::Rect { rect, color } => handler.rect_cmd(rect, color),
+                Command::Icon { id, rect, color } => handler.icon_cmd(id, rect, color),
+                Command::Text { font, pos, color, text } => handler.text_cmd(font, pos, color, text),
+                Command::Jump(_) => unreachable!()
+            }
+
+            i += 1;
+        }
+
+        // We must set the length to zero because we are doing a bitwise copy
+        // of each command which possibly includes strings. By doing this we
+        // are effectively transferring the ownership to the handler which will
+        // take care of freeing them. Otherwise, begin() will attempt to drop
+        // those strings the next frame which would result in a double-free.
+        unsafe {
+            self.command_list.set_len(0);
+        }
     }
 
     #[inline]

@@ -3,7 +3,6 @@ use std::{
     cmp::Ordering,
     ops::{Index, IndexMut},
     convert::AsRef,
-    ptr,
     any
 };
 
@@ -36,7 +35,7 @@ impl<T, const N: usize> ConstVec<T, N> {
     #[inline]
     pub fn push(&mut self, item: T) {
         assert!(
-            self.index < self.items.len(),
+            self.index < N,
             "Ran out of memory in ConstVec<{}, {}>",
             any::type_name::<T>(),
             N
@@ -54,13 +53,21 @@ impl<T, const N: usize> ConstVec<T, N> {
             self.index -= 1;
 
             unsafe {
-                Some(ptr::read(self.items[self.index].as_ptr()))
+                Some(self.items[self.index].assume_init_read())
             }
         }
     }
 
     #[inline]
     pub fn clear(&mut self) {
+        if mem::needs_drop::<T>() {
+            for item in &mut self.items[0..self.index] {
+                unsafe {
+                    item.assume_init_drop();
+                }
+            }
+        }
+
         self.index = 0;
     }
 
@@ -138,16 +145,17 @@ impl<T, const N: usize> ConstVec<T, N> {
 
     #[inline]
     pub unsafe fn ptr_at(&self, index: usize) -> *const T {
-        assert!(index < self.items.len());
-
         self.items[index].as_ptr()
     }
 
     #[inline]
     pub unsafe fn ptr_at_mut(&mut self, index: usize) -> *mut T {
-        assert!(index < self.items.len());
-
         self.items[index].as_mut_ptr()
+    }
+
+    #[inline]
+    pub unsafe fn read_at(&self, index: usize) -> T {
+        self.items[index].assume_init_read()
     }
 
     #[inline]
@@ -172,7 +180,7 @@ impl<T, const N: usize> ConstVec<T, N> {
 
 impl<T: Default, const N: usize> ConstVec<T, N> {
     pub fn init_default(&mut self) {
-        for i in 0..self.items.len() {
+        for i in 0..N {
             self.items[i].write(T::default());
         }
 
@@ -206,5 +214,11 @@ impl<T, const N: usize> AsRef<[T]> for ConstVec<T, N> {
     fn as_ref(&self) -> &[T] {
         // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
         unsafe { mem::transmute(&self.items[0..self.index]) }
+    }
+}
+
+impl<T, const N: usize> Drop for ConstVec<T, N> {
+    fn drop(&mut self) {
+        self.clear();
     }
 }
