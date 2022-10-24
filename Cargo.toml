@@ -1,4 +1,8 @@
 [workspace]
 members = [
-    "microui"
+    "microui",
+    "microui-wgpu",
+    "examples/demo"
 ]
+
+resolver = "2"

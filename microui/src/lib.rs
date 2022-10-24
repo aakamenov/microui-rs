@@ -13,8 +13,6 @@ pub use text_buf::TextBuf;
 
 use std::{ptr, cmp, mem, fmt::{self, Write}, ops, hash::Hash};
 
-use geometry::{Rect, Vec2, vec2, rect};
-use style::{Style, Color, WidgetColor};
 use const_vec::{ConstVec, ConstStr};
 
 pub const COMMAND_LIST_SIZE: usize = 4096;
