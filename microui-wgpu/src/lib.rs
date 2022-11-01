@@ -40,10 +40,13 @@ pub fn run(mut app: Box<dyn App>) {
         } if window_id == window.id() => match event {
             WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
             WindowEvent::Resized(physical_size) => {
-                renderer.resize(*physical_size);
+                renderer.resize(*physical_size, None);
             }
-            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                renderer.resize(**new_inner_size);
+            WindowEvent::ScaleFactorChanged {
+                new_inner_size,
+                scale_factor
+            } => {
+                renderer.resize(**new_inner_size, Some(*scale_factor));
             }
             _ => {}
         },
@@ -56,7 +59,7 @@ pub fn run(mut app: Box<dyn App>) {
 
             match renderer.render(&mut context) {
                 Ok(_) => {}
-                Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size),
+                Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size(), None),
                 Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
                 Err(e) => eprintln!("{:?}", e),
             }

@@ -11,7 +11,7 @@ use bytemuck::{Pod, Zeroable};
 use pollster::FutureExt;
 
 pub struct Renderer {
-    pub size: PhysicalSize<u32>,
+    scale_factor: f64,
     surface: wgpu::Surface,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -172,8 +172,7 @@ impl Renderer {
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     strip_index_format: None,
                     front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: None,
-                    //cull_mode: Some(wgpu::Face::Back),
+                    cull_mode: Some(wgpu::Face::Front),
                     // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
                     polygon_mode: wgpu::PolygonMode::Fill,
                     // Requires Features::DEPTH_CLIP_CONTROL
@@ -187,42 +186,39 @@ impl Renderer {
             }
         );
 
-        queue.write_buffer(
-            &screen_size_buffer,
-            0,
-            bytemuck::cast_slice(
-                &[size.width as f32, size.height as f32]
-            )
-        );
-        
-        Self {
+        let instance = Self {
             surface,
             device,
             queue,
             config,
-            size,
+            scale_factor: window.scale_factor(),
             pipeline,
             vertices: vec![],
             indices: vec![],
             screen_size_buffer,
             screen_size_bind_group
-        }
+        };
+        instance.write_screen_size_buffer(size);
+
+        instance
     }
 
-    pub fn resize(&mut self, size: PhysicalSize<u32>) {
+    #[inline]
+    pub fn size(&self) -> PhysicalSize<u32> {
+        PhysicalSize::new(self.config.width, self.config.height)
+    }
+
+    pub fn resize(&mut self, size: PhysicalSize<u32>, scale_factor: Option<f64>) {
+        if let Some(scale_factor) = scale_factor {
+            self.scale_factor = scale_factor;
+        }
+
         if size.width == 0 || size.height == 0 {
             return;
         }
 
-        self.queue.write_buffer(
-            &self.screen_size_buffer,
-            0,
-            bytemuck::cast_slice(
-                &[size.width as f32, size.height as f32]
-            )
-        );
+        self.write_screen_size_buffer(size);
 
-        self.size = size;
         self.config.width = size.width;
         self.config.height = size.height;
         self.surface.configure(&self.device, &self.config);
@@ -233,6 +229,7 @@ impl Renderer {
     }
 
     pub fn update(&mut self) {
+
     }
 
     pub fn render(&mut self, ctx: &mut Box<Context>) -> Result<(), wgpu::SurfaceError> {
@@ -300,6 +297,18 @@ impl Renderer {
         output.present();
     
         Ok(())
+    }
+
+    fn write_screen_size_buffer(&self, size: PhysicalSize<u32>) {
+        let logical_size = size.to_logical::<f32>(self.scale_factor);
+
+        self.queue.write_buffer(
+            &self.screen_size_buffer,
+            0,
+            bytemuck::cast_slice(
+                &[logical_size.width as f32, logical_size.height as f32]
+            )
+        );
     }
 }
 
