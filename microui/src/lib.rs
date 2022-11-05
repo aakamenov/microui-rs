@@ -861,8 +861,8 @@ impl Context {
         layout.pos.x += result.w + spacing;
         layout.next_row = cmp::max(layout.next_row, result.y + result.h + spacing);
 
-        result.x = layout.body.x;
-        result.y = layout.body.y;
+        result.x += layout.body.x;
+        result.y += layout.body.y;
 
         layout.max.x = cmp::max(layout.max.x, result.x + result.w);
         layout.max.y = cmp::max(layout.max.y, result.y + result.h);
@@ -1682,7 +1682,6 @@ impl Context {
         content_size.y += padding * 2;
 
         self.push_clip_rect(*body);
-
 
         let container = &self.containers[cnt_idx];
         // Resize body to make room for scrollbars.
