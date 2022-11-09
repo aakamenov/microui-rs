@@ -355,7 +355,10 @@ impl<'a> CommandHandler for Painter<'a> {
     #[inline]
     fn clip_cmd(&mut self, rect: Rect) {
         self.write_mesh_call();
-        self.draw_calls.push(MicrouiDrawCall::Clip(rect));
+
+        if rect != Rect::UNCLIPPED {
+            self.draw_calls.push(MicrouiDrawCall::Clip(rect));
+        }
     }
 
     fn rect_cmd(&mut self, rect: Rect, color: Color) {
