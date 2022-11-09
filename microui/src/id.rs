@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
 pub struct Id(u64);
 
 impl Id {

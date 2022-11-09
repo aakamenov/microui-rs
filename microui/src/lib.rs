@@ -36,7 +36,7 @@ type FrameIdx = u64;
 
 macro_rules! impl_flags {
     ($visibility:vis $state:ident, $variants:ty, $size:ty) => {
-        #[derive(Clone, Copy, Default, PartialEq)]
+        #[derive(Clone, Copy, Default, PartialEq, Debug)]
         $visibility struct $state($size);
 
         impl $state {
@@ -103,7 +103,7 @@ pub struct Context {
     text_input: ConstStr<MAX_TEXT_STORE>
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Icon {
     None,
     Close,
@@ -113,14 +113,14 @@ pub enum Icon {
     Resize
 }
 
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub struct Response {
     pub active: bool,
     pub submit: bool,
     pub change: bool
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[repr(u16)]
 pub enum ContainerOption {
     AlignCenter = 1 << 0,
@@ -138,7 +138,7 @@ pub enum ContainerOption {
     Expanded = 1 << 12,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[repr(u8)]
 pub enum MouseButton {
     Left = 1 << 0,
@@ -146,7 +146,7 @@ pub enum MouseButton {
     Middle = 1 << 2
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[repr(u8)]
 pub enum ModKey {
     Shift = 1 << 0,
@@ -160,7 +160,7 @@ impl_flags!(pub ContainerOptions, ContainerOption, u16);
 impl_flags!(MouseState, MouseButton, u8);
 impl_flags!(ModKeyState, ModKey, u8);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Font;
 
 #[derive(Clone, Default)]
