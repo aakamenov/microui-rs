@@ -1729,7 +1729,7 @@ impl Context {
         // and it has a higher zindex than the current hover root.
         if self.containers[cnt_idx].rect.overlaps(self.mouse_pos) &&
             self.next_hover_root.map_or(
-                false,
+                true,
                 |x| self.containers[cnt_idx].zindex > self.containers[x].zindex
             )
         {
