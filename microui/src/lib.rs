@@ -1019,7 +1019,7 @@ impl Context {
                 self.set_focus(None);
             }
 
-            if !self.mouse_down() && options.is_set(ContainerOption::HoldFocus) {
+            if !self.mouse_down() && options.is_unset(ContainerOption::HoldFocus) {
                 self.set_focus(None);
             }
         }
