@@ -21,20 +21,20 @@ pub struct WidgetColors([Color; WidgetColor::COUNT]);
 #[repr(u8)]
 #[derive(Clone, Copy, EnumCountMacro)]
 pub enum WidgetColor {
-    Text,
-    Border,
-    WindowBackground,
-    TitleBackground,
-    TitleText,
-    PanelBackground,
-    Button,
-    ButtonHover,
-    ButtonFocus,
-    Base,
-    BaseHover,
-    BaseFocus,
-    ScrollBase,
-    ScrollThumb
+    Text = 0,
+    Border = 1,
+    WindowBackground = 2,
+    TitleBackground = 3,
+    TitleText = 4,
+    PanelBackground = 5,
+    Button = 6,
+    ButtonHover = Self::Button as u8 + 1u8,
+    ButtonFocus = Self::Button as u8 + 2u8,
+    Base = 9,
+    BaseHover = Self::Base as u8 + 1u8,
+    BaseFocus = Self::Base as u8 + 2u8,
+    ScrollBase = 12,
+    ScrollThumb = 13
 }
 
 pub struct Style {
@@ -110,10 +110,10 @@ impl Default for WidgetColors {
         c[TitleText] = Color::rgb(240, 240, 240);
         c[Button] = Color::rgb(75, 75, 75);
         c[ButtonHover] = Color::rgb(95, 95, 95);
-        c[ButtonFocus] = Color::rgb(40, 40, 40);
+        c[ButtonFocus] = Color::rgb(115, 115, 115);
         c[Base] = Color::rgb(30, 30, 30);
         c[BaseHover] = Color::rgb(35, 35, 35);
-        c[BaseFocus] = Color::rgb(115, 115, 115);
+        c[BaseFocus] = Color::rgb(40, 40, 40);
         c[ScrollBase] = Color::rgb(43, 43, 43);
         c[ScrollThumb] = Color::rgb(30, 30, 30);
 
