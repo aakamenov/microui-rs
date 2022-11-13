@@ -1446,7 +1446,7 @@ impl Context {
 
             if self.is_focused(id) && self.mouse_down.is_set(MouseButton::Left) {
                 self.containers[cnt_idx].rect.x += self.mouse_delta.x;
-                self.containers[cnt_idx].rect.x += self.mouse_delta.x;
+                self.containers[cnt_idx].rect.y += self.mouse_delta.y;
             }
 
             body.y += title_rect.h;
