@@ -1,11 +1,14 @@
-use std::ops::{Index, IndexMut};
-use strum::EnumCount;
-use strum_macros::EnumCount as EnumCountMacro;
+use std::{
+    mem,
+    ops::{Index, IndexMut}
+};
 
 use crate::{
     Font,
     geometry::{Vec2, vec2}
 };
+
+const WIDGET_COLOR_COUNT: usize = mem::variant_count::<WidgetColor>();
 
 #[derive(Clone, Copy)]
 pub struct Color {
@@ -15,11 +18,11 @@ pub struct Color {
     pub a: u8
 }
 
-pub struct WidgetColors([Color; WidgetColor::COUNT]);
+pub struct WidgetColors([Color; WIDGET_COLOR_COUNT]);
 
 // Order of declaration is important here!
 #[repr(u8)]
-#[derive(Clone, Copy, EnumCountMacro)]
+#[derive(Clone, Copy)]
 pub enum WidgetColor {
     Text = 0,
     Border = 1,
@@ -101,8 +104,8 @@ impl Default for WidgetColors {
     fn default() -> Self {
         use WidgetColor::*;
 
-        let mut c = Self([Color::TRANSPARENT; WidgetColor::COUNT]);
-
+        let mut c = Self([Color::TRANSPARENT; WIDGET_COLOR_COUNT]);
+        
         c[Text] = Color::rgb(230, 230, 230);
         c[Border] = Color::rgb(25, 25, 25);
         c[WindowBackground] = Color::rgb(50, 50, 50);

@@ -1,4 +1,5 @@
 #![feature(new_uninit)]
+#![feature(variant_count)]
 
 pub mod const_vec;
 mod text_buf;
