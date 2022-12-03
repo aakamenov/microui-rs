@@ -732,7 +732,7 @@ impl Context {
     pub fn input_mouse_down(&mut self, pos: Vec2, btn: MouseButton) {
         self.input_mouse_move(pos);
         self.mouse_down.set(btn);
-        self.mouse_down.set(btn);
+        self.mouse_pressed.set(btn);
     }
 
     #[inline]

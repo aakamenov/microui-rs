@@ -1,8 +1,8 @@
 pub use microui;
 
-use microui::{Context, Font};
+use microui::{Context, Font, MouseButton, Vec2, vec2};
 use winit::{
-    event::*,
+    event::{Event, WindowEvent, ElementState, MouseButton as WinitMouseBtn},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
@@ -30,8 +30,10 @@ pub fn run(mut app: Box<dyn App>) {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
 
-    let mut context = Context::new(text_width, text_height);
+    let mut ctx = Context::new(text_width, text_height);
     let mut renderer = Renderer::new(&window);
+
+    let mut mouse_pos = Vec2::ZERO;
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -47,17 +49,38 @@ pub fn run(mut app: Box<dyn App>) {
                 scale_factor
             } => {
                 renderer.resize(**new_inner_size, Some(*scale_factor));
+            },
+            WindowEvent::CursorMoved { position, .. } => {
+                let position = position.to_logical::<i32>(renderer.scale_factor);
+                mouse_pos = vec2(position.x, position.y);
+                
+                ctx.input_mouse_move(mouse_pos);
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                let button = match button {
+                    WinitMouseBtn::Left => Some(MouseButton::Left),
+                    WinitMouseBtn::Right => Some(MouseButton::Right),
+                    WinitMouseBtn::Middle => Some(MouseButton::Middle),
+                    WinitMouseBtn::Other(_) => None
+                };
+
+                if let Some(button) = button {
+                    match state {
+                        ElementState::Pressed => ctx.input_mouse_down(mouse_pos, button),
+                        ElementState::Released => ctx.input_mouse_up(mouse_pos, button),
+                    }
+                }
             }
             _ => {}
         },
         Event::RedrawRequested(id) if id == window.id() => {
-            context.begin();
-            app.frame(&mut context);
-            context.end();
+            ctx.begin();
+            app.frame(&mut ctx);
+            ctx.end();
 
             renderer.update();
 
-            match renderer.render(&mut context) {
+            match renderer.render(&mut ctx) {
                 Ok(_) => {}
                 Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size(), None),
                 Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,

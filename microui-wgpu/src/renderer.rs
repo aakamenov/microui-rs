@@ -11,7 +11,7 @@ use bytemuck::{Pod, Zeroable};
 use pollster::FutureExt;
 
 pub struct Renderer {
-    scale_factor: f64,
+    pub scale_factor: f64,
     surface: wgpu::Surface,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -47,7 +47,7 @@ enum MicrouiDrawCall {
 impl Renderer {
     pub fn new(window: &Window) -> Self {
         let size = window.inner_size();
-
+        
         let instance = wgpu::Instance::new(wgpu::Backends::all());
         let surface = unsafe { instance.create_surface(window) };
         let adapter = instance.request_adapter(
@@ -222,10 +222,6 @@ impl Renderer {
         self.config.width = size.width;
         self.config.height = size.height;
         self.surface.configure(&self.device, &self.config);
-    }
-
-    pub fn input(&mut self, event: &WindowEvent) -> bool {
-        false
     }
 
     pub fn update(&mut self) {
