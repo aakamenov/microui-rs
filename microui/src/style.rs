@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    Font,
+    FontId,
     geometry::{Vec2, vec2}
 };
 
@@ -41,7 +41,7 @@ pub enum WidgetColor {
 }
 
 pub struct Style {
-    pub font: Font,
+    pub font: FontId,
     pub size: Vec2,
     pub padding: u16,
     pub spacing: u16,
@@ -86,7 +86,7 @@ impl IndexMut<WidgetColor> for WidgetColors {
 impl Default for Style {
     fn default() -> Self {
         Self {
-            font: Font,
+            font: FontId::default(),
             size: vec2(68, 10),
             padding: 5,
             spacing: 4,

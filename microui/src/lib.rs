@@ -29,8 +29,6 @@ pub const MAX_FMT: usize = 127;
 pub const MAX_TEXT_STORE: usize = 1024;
 
 pub type DrawFrameFn = fn(ctx: &mut Context, rect: Rect, color_id: WidgetColor);
-pub type TextWidthFn = fn(&Font, &str) -> u16;
-pub type TextHeightFn = fn(&Font) -> u16;
 
 pub type LayoutWidths = [i32; MAX_WIDTHS];
 type FrameIdx = u64;
@@ -68,9 +66,8 @@ macro_rules! impl_flags {
 
 pub struct Context {
     pub draw_frame: DrawFrameFn,
-    pub text_width: TextWidthFn,
-    pub text_height: TextHeightFn,
     pub style: Style,
+    font_handler: Box<dyn TextSizeHandler>,
     hover_id: Option<Id>,
     focus_id: Option<Id>,
     last_id: Option<Id>,
@@ -161,8 +158,8 @@ impl_flags!(pub ContainerOptions, ContainerOption, u16);
 impl_flags!(MouseState, MouseButton, u8);
 impl_flags!(ModKeyState, ModKey, u8);
 
-#[derive(Clone, Debug)]
-pub struct Font;
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Debug)]
+pub struct FontId(pub u32);
 
 #[derive(Clone, Default)]
 pub struct Layout {
@@ -202,12 +199,17 @@ pub enum TextBoxBuf<'a> {
     Numeric
 }
 
+pub trait TextSizeHandler {
+    fn text_width(&self, id: FontId, text: &str) -> i32;
+    fn text_height(&self, id: FontId) -> i32;
+}
+
 pub trait CommandHandler {
     fn clip_cmd(&mut self, rect: Rect);
     fn rect_cmd(&mut self, rect: Rect, color: Color);
     fn text_cmd(
         &mut self,
-        font: Font,
+        font: FontId,
         pos: Vec2,
         color: Color,
         text: String
@@ -228,7 +230,7 @@ enum Command {
         color: Color
     },
     Text {
-        font: Font,
+        font: FontId,
         pos: Vec2,
         color: Color,
         text: String
@@ -265,13 +267,21 @@ fn draw_frame(ctx: &mut Context, rect: Rect, color_id: WidgetColor) {
 }
 
 impl Context {
-    pub fn new(text_width: TextWidthFn, text_height: TextHeightFn) -> Box<Self> {
-        let mut c = Box::<Self>::new_zeroed();
-        let mut ptr = unsafe { &mut *c.as_mut_ptr() };
+    pub fn new(font_handler: impl TextSizeHandler + 'static) -> Box<Self> {
+        let mut ctx = Box::<Self>::new_zeroed();
+        let ctx_ptr = ctx.as_mut_ptr();
 
+        // Fields with types that need Drop cannot be written to
+        // through a &mut reference! We need to use addr_of_mut!
+        // https://lucumr.pocoo.org/2022/1/30/unsafe-rust/
+        unsafe {
+            ptr::addr_of_mut!(
+                (*ctx_ptr).font_handler
+            ).write(Box::new(font_handler));
+        }
+
+        let mut ptr = unsafe { &mut *ctx_ptr };
         ptr.draw_frame = draw_frame;
-        ptr.text_width = text_width;
-        ptr.text_height = text_height;
         ptr.style = Style::default();
         ptr.hover_id = None;
         ptr.focus_id = None;
@@ -297,9 +307,9 @@ impl Context {
         ptr.containers.init_default();
         ptr.container_pool.init_default();
         ptr.treenode_pool.init_default();
-        
+
         unsafe {
-            c.assume_init()
+            ctx.assume_init()
         }
     }
 
@@ -543,14 +553,14 @@ impl Context {
         self.draw_rect(rect(r.x + r.w - 1, r.y, 1, r.h), color);
     }
 
-    pub fn draw_text(&mut self, font: Font, text: impl Into<String>, pos: Vec2, color: Color) {
+    pub fn draw_text(&mut self, font: FontId, text: impl Into<String>, pos: Vec2, color: Color) {
         let text: String = text.into();
 
         let rect = rect(
             pos.x,
             pos.y,
-            (self.text_width)(&font, &text) as i32,
-            (self.text_height)(&font) as i32
+            self.font_handler.text_width(font, &text),
+            self.font_handler.text_height(font)
         );
 
         let clip = self.check_clip(rect);
@@ -875,7 +885,7 @@ impl Context {
 
     fn push_layout(&mut self, body: Rect, scroll: Vec2) {
         let mut layout = Layout {
-            body: rect(body.x - scroll.y, body.y - scroll.y, body.w, body.h),
+            body: rect(body.x - scroll.x, body.y - scroll.y, body.w, body.h),
             max: vec2(-0x1000000, -0x1000000),
             ..Layout::default()
         };
@@ -968,8 +978,10 @@ impl Context {
         options: ContainerOptions
     ) {
         let text: String = text.into();
-        let width = (self.text_width)(&self.style.font, &text) as i32;
-        let height = (self.text_height)(&self.style.font) as i32;
+
+        let font = self.style.font;
+        let width = self.font_handler.text_width(font, &text);
+        let height = self.font_handler.text_height(font);
 
         self.push_clip_rect(rect);
 
@@ -983,7 +995,7 @@ impl Context {
         };
         
         self.draw_text(
-            self.style.font.clone(),
+            font,
             text,
             pos,
             self.style.colors[color_id]
@@ -1040,7 +1052,9 @@ impl Context {
 
         self.layout_begin_column();
 
-        let height = (self.text_height)(&self.style.font) as i32;
+        let font = self.style.font;
+
+        let height = self.font_handler.text_height(font);
         self.layout_row(&[-1], height);
 
         let mut slice = &text[..];
@@ -1053,14 +1067,14 @@ impl Context {
 
             for (i, c) in slice.char_indices().filter(|x| x.1 == ' ' || x.1 == '\n') {
                 let word = &slice[start..i];
-                w += (self.text_width)(&self.style.font, word) as i32;
+                w += self.font_handler.text_width(font, word);
 
                 if w > rect.w && start != 0 {
                     end = start;
                     break;
                 }
 
-                w += (self.text_width)(&self.style.font, &slice[i..i+1]) as i32;
+                w += self.font_handler.text_width(font, &slice[i..i+1]);
 
                 if c == '\n' {
                     end = i + 1;
@@ -1071,7 +1085,7 @@ impl Context {
             }
 
             self.draw_text(
-                self.style.font.clone(),
+                font,
                 &slice[..end],
                 vec2(rect.x, rect.y),
                 color
@@ -1260,14 +1274,17 @@ impl Context {
 
         if self.is_focused(id) {
             let color = self.style.colors[WidgetColor::Text];
-            let textw = (self.text_width)(&self.style.font, &text) as i32;
-            let texth = (self.text_height)(&self.style.font) as i32;
+
+            let font = self.style.font;
+            let textw = self.font_handler.text_width(font, &text);
+            let texth = self.font_handler.text_height(font);
+
             let offset = r.w - self.style.padding as i32 - textw - 1;
             let textx = r.x + cmp::min(offset, self.style.padding as i32);
             let texty = r.y + (r.h - texth) / 2;
 
             self.push_clip_rect(r);
-            self.draw_text(self.style.font.clone(), text, vec2(textx, texty), color);
+            self.draw_text(font, text, vec2(textx, texty), color);
             self.draw_rect(rect(textx + textw, texty, 1, texth), color);
             self.pop_clip_rect();
         } else {
@@ -1443,7 +1460,7 @@ impl Context {
             // Title text
             let id = self.create_id(&"!title");
             self.update_widget(id, title_rect, options);
-            self.draw_widget_text(title, rect, WidgetColor::TitleText, options);
+            self.draw_widget_text(title, title_rect, WidgetColor::TitleText, options);
 
             if self.is_focused(id) && self.mouse_down.is_set(MouseButton::Left) {
                 self.containers[cnt_idx].rect.x += self.mouse_delta.x;
