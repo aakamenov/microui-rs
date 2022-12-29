@@ -325,7 +325,7 @@ impl Context {
     }
 
     pub fn end(&mut self) {
-        assert_eq!(self.container_stack.len(), 0);
+        assert_eq!(self.container_stack.len(), 0, "You probably forgot to call end_window() or end_popup()");
         assert_eq!(self.clip_stack.len(), 0);
         assert_eq!(self.id_stack.len(), 0);
         assert_eq!(self.layout_stack.len(), 0);

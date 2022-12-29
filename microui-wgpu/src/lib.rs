@@ -1,6 +1,6 @@
 pub use microui;
 
-use microui::{Context, Font, MouseButton, Vec2, vec2};
+use microui::{Context, MouseButton, Vec2, vec2};
 use winit::{
     event::{Event, WindowEvent, ElementState, MouseButton as WinitMouseBtn},
     event_loop::{ControlFlow, EventLoop},
@@ -16,29 +16,21 @@ pub trait App {
     fn frame(&mut self, ctx: &mut Context);
 }
 
-fn text_width(font: &Font, text: &str) -> u16 {
-    10
-}
-
-fn text_height(font: &Font) -> u16 {
-    10
-}
-
 pub fn run(mut app: Box<dyn App>) {
     env_logger::init();
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
 
-    let mut ctx = Context::new(text_width, text_height);
     let mut renderer = Renderer::new(&window);
+    let mut ctx = Context::new(renderer.font_map.clone());
 
     let mut mouse_pos = Vec2::ZERO;
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             ref event,
-            window_id,
+            window_id
         } if window_id == window.id() => match event {
             WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
             WindowEvent::Resized(physical_size) => {
@@ -77,8 +69,6 @@ pub fn run(mut app: Box<dyn App>) {
             ctx.begin();
             app.frame(&mut ctx);
             ctx.end();
-
-            renderer.update();
 
             match renderer.render(&mut ctx) {
                 Ok(_) => {}

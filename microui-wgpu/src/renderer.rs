@@ -1,17 +1,25 @@
-use std::{mem, num::NonZeroU64, ops::Range};
+use std::{mem, num::NonZeroU64, rc::Rc};
 
-use microui::{Context, CommandHandler, Font, Icon, Color, Rect, Vec2};
-use wgpu::util::{DeviceExt, BufferInitDescriptor};
+use microui::{Context, CommandHandler, TextSizeHandler, FontId, Icon, Color, Rect, Vec2};
+use wgpu::util::{DeviceExt, BufferInitDescriptor, StagingBelt};
+use wgpu_glyph::{
+    GlyphBrush, GlyphBrushBuilder, Section, Text, Region,
+    FontId as GlyphBrushFontId, ab_glyph::{FontArc, Font, ScaleFont},
+    orthographic_projection
+};
 use winit::{
     window::Window,
-    event::WindowEvent,
     dpi::PhysicalSize
 };
 use bytemuck::{Pod, Zeroable};
 use pollster::FutureExt;
 
+const DEFAULT_FONT: &[u8] = include_bytes!("NotoSans-Regular.ttf");
+const FONT_SIZE_PT: f32 = 16.0;
+
 pub struct Renderer {
     pub scale_factor: f64,
+    pub font_map: FontMap,
     surface: wgpu::Surface,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -20,7 +28,9 @@ pub struct Renderer {
     vertices: Vec<Vertex>,
     indices: Vec<u32>,
     screen_size_bind_group: wgpu::BindGroup,
-    screen_size_buffer: wgpu::Buffer
+    screen_size_buffer: wgpu::Buffer,
+    staging_belt: StagingBelt,
+    glyph_brush: GlyphBrush<()>
 }
 
 #[repr(C)]
@@ -32,16 +42,30 @@ struct Vertex {
 
 struct Painter<'a> {
     draw_calls: Vec<MicrouiDrawCall>,
+    clip: Option<Rect>,
     vertices: &'a mut Vec<Vertex>,
     indices: &'a mut Vec<u32>,
-    current_quad: u32,
-    last_index: u32
+    current_quad: u32
 }
 
+#[derive(Clone, Debug)]
+pub struct FontMap(Rc<Vec<FontArc>>);
+
 enum MicrouiDrawCall {
-    Mesh(Range<u32>),
-    Clip(Rect),
-    Text { }
+    Mesh,
+    Text {
+        font: FontId,
+        pos: Vec2,
+        color: Color,
+        text: String,
+        clip: Option<Rect>
+    },
+    Icon {
+        text: String,
+        rect: Rect,
+        color: Color,
+        clip: Option<Rect>
+    }
 }
 
 impl Renderer {
@@ -70,7 +94,7 @@ impl Renderer {
                 },
                 label: None,
             },
-            None, // Trace path
+            None
         )
         .block_on()
         .unwrap();
@@ -81,6 +105,7 @@ impl Renderer {
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto
         };
 
         surface.configure(&device, &config);
@@ -186,6 +211,10 @@ impl Renderer {
             }
         );
 
+        let font_arc = FontArc::try_from_slice(DEFAULT_FONT).unwrap();
+        let glyph_brush = GlyphBrushBuilder::using_font(font_arc.clone())
+            .build(&device, wgpu::TextureFormat::Bgra8UnormSrgb);
+
         let instance = Self {
             surface,
             device,
@@ -196,7 +225,10 @@ impl Renderer {
             vertices: vec![],
             indices: vec![],
             screen_size_buffer,
-            screen_size_bind_group
+            screen_size_bind_group,
+            staging_belt: StagingBelt::new(1024),
+            glyph_brush,
+            font_map: FontMap::new(font_arc)
         };
         instance.write_screen_size_buffer(size);
 
@@ -224,11 +256,7 @@ impl Renderer {
         self.surface.configure(&self.device, &self.config);
     }
 
-    pub fn update(&mut self) {
-
-    }
-
-    pub fn render(&mut self, ctx: &mut Box<Context>) -> Result<(), wgpu::SurfaceError> {
+    pub fn render(&mut self, ctx: &mut Context) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -236,61 +264,152 @@ impl Renderer {
             label: Some("microui_command encoder")
         });
 
-        let mut painter = Painter::new(&mut self.vertices, &mut self.indices);
+        let mut painter = Painter::new(
+            &mut self.vertices,
+            &mut self.indices
+        );
+
         ctx.handle_commands(&mut painter);
         let calls = painter.finish();
 
-        let index_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("microui_index_buffer"),
-            contents: bytemuck::cast_slice(&self.indices),
-            usage: wgpu::BufferUsages::INDEX
-        });
-
-        let vertex_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("microui_vertex_buffer"),
-            contents: bytemuck::cast_slice(&self.vertices),
-            usage: wgpu::BufferUsages::VERTEX
-        });
-
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("microui_render pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: true,
-                },
-            })],
-            depth_stencil_attachment: None,
-        });
-
-        render_pass.set_bind_group(0, &self.screen_size_bind_group, &[]);
-        render_pass.set_pipeline(&self.pipeline);
-        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        let size = self.size();
+        let mut queued_text = false;
 
         for call in calls {
             match call {
-                MicrouiDrawCall::Mesh(range) => render_pass.draw_indexed(
-                    range,
-                    0,
-                    0..1
-                ),
-                MicrouiDrawCall::Clip(rect) => render_pass.set_scissor_rect(
-                    rect.x as u32,
-                    rect.y as u32,
-                    rect.w as u32,
-                    rect.h as u32
-                ),
-                MicrouiDrawCall::Text {  } => todo!()
+                MicrouiDrawCall::Mesh => {
+                    let index_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+                        label: Some("microui_index_buffer"),
+                        contents: bytemuck::cast_slice(&self.indices),
+                        usage: wgpu::BufferUsages::INDEX
+                    });
+
+                    let vertex_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+                        label: Some("microui_vertex_buffer"),
+                        contents: bytemuck::cast_slice(&self.vertices),
+                        usage: wgpu::BufferUsages::VERTEX
+                    });
+        
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("microui_render pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: true,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                    });
+            
+                    render_pass.set_scissor_rect(0, 0, size.width, size.height);
+                    render_pass.set_bind_group(0, &self.screen_size_bind_group, &[]);
+                    render_pass.set_pipeline(&self.pipeline);
+                    render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+
+                    render_pass.draw_indexed(
+                        0..self.indices.len() as u32,
+                        0,
+                        0..1
+                    )
+                },
+                MicrouiDrawCall::Text { font, pos, color, text, clip } => {
+                    if clip.is_some() && queued_text {
+                        self.glyph_brush.draw_queued(
+                            &self.device,
+                            &mut self.staging_belt,
+                            &mut encoder,
+                            &view,
+                            size.width,
+                            size.height
+                        ).unwrap();
+
+                        queued_text = false;
+                    } else {
+                        queued_text = true;
+                    }
+
+                    self.glyph_brush.queue(Section {
+                        screen_position: (pos.x as f32, pos.y as f32),
+                        text: vec![Text::new(&text)
+                            .with_scale(FONT_SIZE_PT)
+                            .with_color([color.r as f32, color.g as f32, color.b as f32, color.a as f32])
+                            .with_font_id(GlyphBrushFontId(font.0 as usize))
+                        ],
+                        ..Section::default()
+                    });
+
+                    if let Some(clip) = clip {
+                        self.glyph_brush.draw_queued_with_transform_and_scissoring(
+                            &self.device,
+                            &mut self.staging_belt,
+                            &mut encoder,
+                            &view,
+                            orthographic_projection(size.width, size.height),
+                            Region { x: clip.x as u32, y: clip.y as u32, width: clip.w as u32, height: clip.h as u32 }
+                        ).unwrap();
+                    }
+                },
+                MicrouiDrawCall::Icon { text, rect, color, clip } => {
+                    if clip.is_some() && queued_text {
+                        self.glyph_brush.draw_queued(
+                            &self.device,
+                            &mut self.staging_belt,
+                            &mut encoder,
+                            &view,
+                            size.width,
+                            size.height
+                        ).unwrap();
+
+                        queued_text = false;
+                    } else {
+                        queued_text = true;
+                    }
+
+                    self.glyph_brush.queue(Section {
+                        bounds: (rect.w as f32, rect.h as f32),
+                        screen_position: (rect.x as f32, rect.y as f32),
+                        text: vec![Text::new(&text)
+                            .with_scale(FONT_SIZE_PT)
+                            .with_color([color.r as f32, color.g as f32, color.b as f32, color.a as f32])
+                            .with_font_id(GlyphBrushFontId(0))
+                        ],
+                        ..Section::default()
+                    });
+
+                    if let Some(clip) = clip {
+                        self.glyph_brush.draw_queued_with_transform_and_scissoring(
+                            &self.device,
+                            &mut self.staging_belt,
+                            &mut encoder,
+                            &view,
+                            orthographic_projection(size.width, size.height),
+                            Region { x: clip.x as u32, y: clip.y as u32, width: clip.w as u32, height: clip.h as u32 }
+                        ).unwrap();
+                    }
+                }
             }
         }
 
-        drop(render_pass);
+        if queued_text {
+            self.glyph_brush.draw_queued(
+                &self.device,
+                &mut self.staging_belt,
+                &mut encoder,
+                &view,
+                size.width,
+                size.height
+            ).unwrap();
+        }
 
+        self.staging_belt.finish();
+    
         self.queue.submit([encoder.finish()]);
         output.present();
+
+        self.staging_belt.recall();
     
         Ok(())
     }
@@ -317,32 +436,23 @@ impl<'a> Painter<'a> {
         indices.clear();
 
         Self {
-            draw_calls: vec![],
+            draw_calls: vec![
+                // Vertices should be drawn before text.
+                MicrouiDrawCall::Mesh
+            ],
+            clip: None,
             vertices,
             indices,
-            current_quad: 0,
-            last_index: 0
+            current_quad: 0
         }
-    }
-
-    fn write_mesh_call(&mut self) {
-        if self.vertices.is_empty() {
-            return;
-        }
-
-        self.current_quad = 0;
-
-        let len = self.indices.len() as u32;
-        self.draw_calls.push(MicrouiDrawCall::Mesh(
-            self.last_index..len
-        ));
-
-        self.last_index = len;
     }
 
     #[inline]
     fn finish(mut self) -> Vec<MicrouiDrawCall> {
-        self.write_mesh_call();
+        if self.vertices.is_empty() {
+            self.draw_calls.swap_remove(0);
+        }
+
         self.draw_calls
     }
 }
@@ -350,14 +460,14 @@ impl<'a> Painter<'a> {
 impl<'a> CommandHandler for Painter<'a> {
     #[inline]
     fn clip_cmd(&mut self, rect: Rect) {
-        self.write_mesh_call();
-
         if rect != Rect::UNCLIPPED {
-            self.draw_calls.push(MicrouiDrawCall::Clip(rect));
+            self.clip = Some(rect);
         }
     }
 
     fn rect_cmd(&mut self, rect: Rect, color: Color) {
+        assert!(self.clip.is_none());
+        
         self.vertices.extend(&[
             Vertex {
                 position: [rect.x, rect.y],
@@ -389,14 +499,15 @@ impl<'a> CommandHandler for Painter<'a> {
         self.current_quad += 1;
     }
 
+    #[inline]
     fn text_cmd(
         &mut self,
-        font: Font,
+        font: FontId,
         pos: Vec2,
         color: Color,
         text: String
     ) {
-        //self.write_mesh_call();
+        self.draw_calls.push(MicrouiDrawCall::Text { font, pos, color, text, clip: self.clip.take() });
     }
 
     fn icon_cmd(
@@ -405,7 +516,50 @@ impl<'a> CommandHandler for Painter<'a> {
         rect: Rect,
         color: Color
     ) {
-        //self.write_mesh_call();
+        let text = match id {
+          Icon::Close => "X",
+          _ => "+"
+        }.into();
+
+        self.draw_calls.push(MicrouiDrawCall::Icon { text, rect, color, clip: self.clip.take() });
+    }
+}
+
+impl FontMap {
+    #[inline]
+    fn new(initial: FontArc) -> Self {
+        Self(Rc::new(vec![initial]))
+    }
+}
+
+impl TextSizeHandler for FontMap {
+    fn text_width(&self, id: FontId, text: &str) -> i32 {
+        let font = &self.0[id.0 as usize].as_scaled(FONT_SIZE_PT);
+        
+        let mut width = 0.;
+        let mut last_glyph_id = None;
+
+        for c in text.chars() {
+            let id = font.glyph_id(c);
+
+            if let Some(last_id) = last_glyph_id {
+                // This is probably irrelevant most of the time
+                // since we are converting to i32...
+                width += font.kern(last_id, id);
+            }
+
+            last_glyph_id = Some(id);
+            width += font.h_advance(id);
+        }
+        
+        width as i32
+    }
+
+    #[inline]
+    fn text_height(&self, id: FontId) -> i32 {
+        let font = &self.0[id.0 as usize].as_scaled(FONT_SIZE_PT);
+
+        font.height() as i32
     }
 }
 

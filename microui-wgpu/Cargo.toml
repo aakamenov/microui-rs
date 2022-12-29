@@ -5,7 +5,8 @@ edition = "2021"
 
 [dependencies]
 microui = { path = "../microui" }
-wgpu = "0.13.1"
+wgpu = "0.14"
+wgpu_glyph = "0.18.0"
 winit = "0.27.2"
 env_logger = "0.9.0"
 pollster = "0.2.5"
