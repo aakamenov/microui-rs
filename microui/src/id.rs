@@ -1,7 +1,10 @@
-use std::hash::{Hash, Hasher};
+use std::{
+    hash::{Hash, Hasher},
+    ops::BitXor
+};
 
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
-pub struct Id(u64);
+pub struct Id(pub u64);
 
 impl Id {
     pub fn new(item: &impl Hash, entropy: u64) -> Self {
@@ -31,13 +34,15 @@ impl Fnv1a {
 }
 
 impl Hasher for Fnv1a {
+    #[inline]
     fn finish(&self) -> u64 {
         self.0
     }
 
+    #[inline]
     fn write(&mut self, bytes: &[u8]) {
         for i in 0..bytes.len() {
-            self.0 = (self.0 ^ bytes[i] as u64).wrapping_mul(1099511628211);
+            self.0 = self.0.bitxor(bytes[i] as u64).wrapping_mul(1099511628211);
         }
     }
 }

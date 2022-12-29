@@ -12,7 +12,7 @@ pub use style::*;
 pub use id::Id;
 pub use text_buf::TextBuf;
 
-use std::{ptr, cmp, mem, fmt::{self, Write}, ops, hash::Hash};
+use std::{ptr, cmp, mem, fmt::Write, ops, hash::Hash};
 
 use const_vec::{ConstVec, ConstStr};
 
@@ -102,6 +102,7 @@ pub struct Context {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[repr(u8)]
 pub enum Icon {
     None,
     Close,
@@ -464,15 +465,9 @@ impl Context {
 
     #[inline]
     pub fn create_id(&mut self, item: &impl Hash) -> Id {
-        let id = Id::new(item, self.id_stack.len() as u64);
-        self.last_id = Some(id);
+        let entropy = self.id_stack.last().copied().unwrap_or(Id::default());
 
-        id
-    }
-
-    #[inline]
-    pub fn create_id_addr(&mut self, item: &impl fmt::Pointer) -> Id {
-        let id = Id::new(&format!("{:p}", item), self.id_stack.len() as u64);
+        let id = Id::new(item, entropy.0);
         self.last_id = Some(id);
 
         id
@@ -611,7 +606,7 @@ impl Context {
 impl Context {
     #[inline]
     pub fn current_container_index(&self) -> Option<usize> {
-        self.container_stack.last().cloned()
+        self.container_stack.last().copied()
     }
 
     #[inline]
@@ -919,10 +914,7 @@ impl Layout {
             }
         }
 
-        self.items = widths.len();
-        self.pos = vec2(self.indent, self.next_row);
-        self.size.y = height;
-        self.item_index = 0;
+        self.row_items(widths.len(), height);
     }
 
     #[inline]
@@ -1121,7 +1113,7 @@ impl Context {
         let options = options.unwrap_or(ContainerOptions(ContainerOption::AlignCenter as u16));
 
         let id = if label.is_empty() {
-            self.create_id_addr(&&icon)
+            self.create_id(&(icon as u8 as *const u8))
         } else {
             self.create_id(&label)
         };
@@ -1149,7 +1141,7 @@ impl Context {
     pub fn checkbox(&mut self, label: impl Into<String>, checked: &mut bool) -> Response {
         let mut resp = Response::default();
 
-        let id = self.create_id_addr(&checked);
+        let id = self.create_id(&(checked as *const bool));
         let r = self.layout_next();
         let frame = rect(r.x, r.y, r.h, r.h);
 
@@ -1173,7 +1165,7 @@ impl Context {
     }
 
     pub fn textbox(&mut self, buf: &mut impl TextBuf, options: ContainerOptions) -> Response {
-        let id = self.create_id_addr(&buf);
+        let id = self.create_id(&buf.as_str().as_ptr());
         let rect = self.layout_next();
 
         self.textbox_raw(TextBoxBuf::Text(buf), id, rect, options)
@@ -1306,7 +1298,7 @@ impl Context {
 
         let last = *value;
         let mut v = last;
-        let id = self.create_id_addr(&value);
+        let id = self.create_id(&(value as *const f64));
         let base = self.layout_next();
 
         if self.textbox_float(value, base, id) {
@@ -1353,7 +1345,7 @@ impl Context {
         let mut resp = Response::default();
         let options = options.unwrap_or(ContainerOptions(ContainerOption::AlignCenter as u16));
 
-        let id = self.create_id_addr(&value);
+        let id = self.create_id(&(value as *const f64));
         let base = self.layout_next();
         let last = *value;
 
