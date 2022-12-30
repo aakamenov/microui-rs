@@ -383,9 +383,10 @@ impl Context {
                     }
                 }
             } else {
-                let tail = self.containers[cnt_idx - 1].tail.unwrap();
+                let prev_idx = self.root_list[i - 1];
+                let tail_idx = self.containers[prev_idx].tail.unwrap();
 
-                match &mut self.command_list[tail] {
+                match &mut self.command_list[tail_idx] {
                     Command::Jump(dst) => {
                         *dst = self.containers[cnt_idx].head.unwrap() + 1;
                     },
@@ -395,10 +396,12 @@ impl Context {
 
             // Make the last container's tail jump to the end of command list.
             if i == self.root_list.len() - 1 {
-                let tail = self.containers[cnt_idx].tail.unwrap();
+                let tail_idx = self.containers[cnt_idx].tail.unwrap();
                 let commands_len = self.command_list.len();
 
-                match &mut self.command_list[tail] {
+                assert!(tail_idx < commands_len);
+
+                match &mut self.command_list[tail_idx] {
                     Command::Jump(dst) => {
                         *dst = commands_len;
                     },
