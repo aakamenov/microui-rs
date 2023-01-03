@@ -223,6 +223,7 @@ pub trait CommandHandler {
     );
 }
 
+#[derive(Debug)]
 enum Command {
     Jump(usize),
     Clip(Rect),
@@ -414,27 +415,21 @@ impl Context {
     pub fn handle_commands(&mut self, handler: &mut impl CommandHandler) {
         let mut i = 0;
 
-        'outer: while i < self.command_list.len() {
-            let mut cmd = unsafe {
+        while i < self.command_list.len() {
+            let cmd = unsafe {
                 self.command_list.read_at(i)  
             };
-
-            while let Command::Jump(dst) = cmd {
-                if dst == self.command_list.len() {
-                    break 'outer;
-                }
-
-                cmd = unsafe {
-                    self.command_list.read_at(dst)
-                };
-            }
 
             match cmd {
                 Command::Clip(rect) => handler.clip_cmd(rect),
                 Command::Rect { rect, color } => handler.rect_cmd(rect, color),
                 Command::Icon { id, rect, color } => handler.icon_cmd(id, rect, color),
                 Command::Text { font, pos, color, text } => handler.text_cmd(font, pos, color, text),
-                Command::Jump(_) => unreachable!()
+                Command::Jump(dst) => {
+                    i = dst;
+
+                    continue;
+                }
             }
 
             i += 1;
