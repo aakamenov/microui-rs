@@ -1701,8 +1701,8 @@ impl Context {
             body.h -= scrollbar_size;
         }
 
-        self.scrollbar_v(cnt_idx, body, Vec2::ZERO, "!scrollbarv");
-        self.scrollbar_h(cnt_idx, body, Vec2::ZERO, "!scrollbarh");
+        self.scrollbar_v(cnt_idx, body, content_size, "!scrollbarv");
+        self.scrollbar_h(cnt_idx, body, content_size, "!scrollbarh");
 
         self.pop_clip_rect();
     }
