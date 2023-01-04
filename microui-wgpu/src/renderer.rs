@@ -1,7 +1,7 @@
 use std::{mem, num::NonZeroU64, rc::Rc};
 
 use microui::{Context, CommandHandler, TextSizeHandler, FontId, Icon, Color, Rect, Vec2};
-use wgpu::util::{DeviceExt, BufferInitDescriptor, StagingBelt};
+use wgpu::util::StagingBelt;
 use wgpu_glyph::{
     GlyphBrush, GlyphBrushBuilder, Section, Text, Region,
     FontId as GlyphBrushFontId, ab_glyph::{FontArc, Font, ScaleFont},
@@ -16,6 +16,8 @@ use pollster::FutureExt;
 
 const DEFAULT_FONT: &[u8] = include_bytes!("NotoSans-Regular.ttf");
 const FONT_SIZE_PT: f32 = 16.0;
+const INDEX_BUFFER_INITIAL_LEN: u64 = 1024;
+const VERTEX_BUFFER_INITIAL_LEN: u64 = 512;
 
 pub struct Renderer {
     pub scale_factor: f64,
@@ -27,6 +29,8 @@ pub struct Renderer {
     pipeline: wgpu::RenderPipeline,
     vertices: Vec<Vertex>,
     indices: Vec<u32>,
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
     screen_size_bind_group: wgpu::BindGroup,
     screen_size_buffer: wgpu::Buffer,
     staging_belt: StagingBelt,
@@ -215,6 +219,9 @@ impl Renderer {
         let glyph_brush = GlyphBrushBuilder::using_font(font_arc.clone())
             .build(&device, wgpu::TextureFormat::Bgra8UnormSrgb);
 
+        let vertex_buffer = new_vertex_buffer(&device, mem::size_of::<Vertex>() as u64 * VERTEX_BUFFER_INITIAL_LEN);
+        let index_buffer = new_index_buffer(&device, mem::size_of::<u32>() as u64 * INDEX_BUFFER_INITIAL_LEN);
+
         let instance = Self {
             surface,
             device,
@@ -222,8 +229,10 @@ impl Renderer {
             config,
             scale_factor: window.scale_factor(),
             pipeline,
-            vertices: vec![],
-            indices: vec![],
+            vertices: Vec::with_capacity(VERTEX_BUFFER_INITIAL_LEN as usize),
+            indices: Vec::with_capacity(INDEX_BUFFER_INITIAL_LEN as usize),
+            vertex_buffer,
+            index_buffer,
             screen_size_buffer,
             screen_size_bind_group,
             staging_belt: StagingBelt::new(1024),
@@ -278,17 +287,19 @@ impl Renderer {
         for call in calls {
             match call {
                 MicrouiDrawCall::Mesh => {
-                    let index_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
-                        label: Some("microui_index_buffer"),
-                        contents: bytemuck::cast_slice(&self.indices),
-                        usage: wgpu::BufferUsages::INDEX
-                    });
+                    let index_bytes: &[u8] = bytemuck::cast_slice(&self.indices);
+                    let vertex_bytes: &[u8] = bytemuck::cast_slice(&self.vertices);
 
-                    let vertex_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
-                        label: Some("microui_vertex_buffer"),
-                        contents: bytemuck::cast_slice(&self.vertices),
-                        usage: wgpu::BufferUsages::VERTEX
-                    });
+                    if index_bytes.len() as u64 > self.index_buffer.size() {
+                        self.index_buffer = new_index_buffer(&self.device, index_bytes.len() as u64)
+                    }
+
+                    if vertex_bytes.len() as u64 > self.vertex_buffer.size() {
+                        self.vertex_buffer = new_vertex_buffer(&self.device, vertex_bytes.len() as u64)
+                    }
+
+                    self.queue.write_buffer(&self.index_buffer, 0, index_bytes);
+                    self.queue.write_buffer(&self.vertex_buffer, 0, vertex_bytes);
         
                     let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("microui_render pass"),
@@ -306,8 +317,8 @@ impl Renderer {
                     render_pass.set_scissor_rect(0, 0, size.width, size.height);
                     render_pass.set_bind_group(0, &self.screen_size_bind_group, &[]);
                     render_pass.set_pipeline(&self.pipeline);
-                    render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
                     render_pass.draw_indexed(
                         0..self.indices.len() as u32,
@@ -425,6 +436,24 @@ impl Renderer {
             )
         );
     }
+}
+
+fn new_index_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("microui_index_buffer"),
+        size,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::INDEX,
+        mapped_at_creation: false
+    })
+}
+
+fn new_vertex_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("microui_vertex_buffer"),
+        size,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::VERTEX,
+        mapped_at_creation: false
+    })
 }
 
 impl<'a> Painter<'a> {

@@ -1,4 +1,4 @@
-pub use microui;
+use std::time::{Instant, Duration};
 
 use microui::{Context, MouseButton, Vec2, vec2};
 use winit::{
@@ -7,6 +7,7 @@ use winit::{
     window::WindowBuilder,
 };
 
+pub use microui;
 mod renderer;
 
 use renderer::Renderer;
@@ -26,6 +27,7 @@ pub fn run(mut app: Box<dyn App>) {
     let mut ctx = Context::new(renderer.font_map.clone());
 
     let mut mouse_pos = Vec2::ZERO;
+    let mut render_delta = Instant::now();
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -76,9 +78,14 @@ pub fn run(mut app: Box<dyn App>) {
                 Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
                 Err(e) => eprintln!("{:?}", e),
             }
+
+            render_delta = Instant::now();
         },
         Event::MainEventsCleared => {
-            window.request_redraw();
+            // Cap to 60 FPS
+            if render_delta.elapsed() >= Duration::from_millis(16) {
+                window.request_redraw();
+            }
         }
         _ => {}
     });
