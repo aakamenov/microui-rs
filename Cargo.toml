@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "microui",
+    "microui-app",
+    "microui-femtovg",
     "microui-wgpu",
     "examples/demo"
 ]

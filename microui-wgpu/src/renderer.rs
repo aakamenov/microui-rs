@@ -1,20 +1,29 @@
 use std::{mem, num::NonZeroU64, rc::Rc};
 
-use microui::{Context, CommandHandler, TextSizeHandler, FontId, Icon, Color, Rect, Vec2};
+use microui_app::{
+    MicrouiRenderer,
+    microui::{
+        Context, CommandHandler, TextSizeHandler,
+        FontId, Icon, Color, Rect, Vec2
+    },
+    winit::{
+        window::{WindowBuilder, Window},
+        event_loop::EventLoop,
+        dpi::PhysicalSize
+    }
+};
+
 use wgpu::util::StagingBelt;
 use wgpu_glyph::{
     GlyphBrush, GlyphBrushBuilder, Section, Text, Region,
     FontId as GlyphBrushFontId, ab_glyph::{FontArc, Font, ScaleFont},
     orthographic_projection
 };
-use winit::{
-    window::Window,
-    dpi::PhysicalSize
-};
+
 use bytemuck::{Pod, Zeroable};
 use pollster::FutureExt;
 
-const DEFAULT_FONT: &[u8] = include_bytes!("NotoSans-Regular.ttf");
+const DEFAULT_FONT: &[u8] = include_bytes!("../../fonts/ProggyClean.ttf");
 const FONT_SIZE_PT: f32 = 16.0;
 const INDEX_BUFFER_INITIAL_LEN: u64 = 1024;
 const VERTEX_BUFFER_INITIAL_LEN: u64 = 512;
@@ -22,6 +31,7 @@ const VERTEX_BUFFER_INITIAL_LEN: u64 = 512;
 pub struct Renderer {
     pub scale_factor: f64,
     pub font_map: FontMap,
+    window: Window,
     surface: wgpu::Surface,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -72,12 +82,20 @@ enum MicrouiDrawCall {
     }
 }
 
-impl Renderer {
-    pub fn new(window: &Window) -> Self {
+impl MicrouiRenderer for Renderer {
+    type TextSizeHandler = FontMap;
+
+    fn init(
+        window_builder: WindowBuilder,
+        event_loop: &EventLoop<()>
+    ) -> Self {
+        env_logger::init();
+
+        let window = window_builder.build(&event_loop).unwrap();
         let size = window.inner_size();
         
         let instance = wgpu::Instance::new(wgpu::Backends::all());
-        let surface = unsafe { instance.create_surface(window) };
+        let surface = unsafe { instance.create_surface(&window) };
         let adapter = instance.request_adapter(
             &wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -103,9 +121,10 @@ impl Renderer {
         .block_on()
         .unwrap();
 
+        let render_format = surface.get_supported_formats(&adapter)[0];
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface.get_supported_formats(&adapter)[0],
+            format: render_format,
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::Fifo,
@@ -217,12 +236,13 @@ impl Renderer {
 
         let font_arc = FontArc::try_from_slice(DEFAULT_FONT).unwrap();
         let glyph_brush = GlyphBrushBuilder::using_font(font_arc.clone())
-            .build(&device, wgpu::TextureFormat::Bgra8UnormSrgb);
+            .build(&device, render_format);
 
         let vertex_buffer = new_vertex_buffer(&device, mem::size_of::<Vertex>() as u64 * VERTEX_BUFFER_INITIAL_LEN);
         let index_buffer = new_index_buffer(&device, mem::size_of::<u32>() as u64 * INDEX_BUFFER_INITIAL_LEN);
 
         let instance = Self {
+            window,
             surface,
             device,
             queue,
@@ -244,15 +264,8 @@ impl Renderer {
         instance
     }
 
-    #[inline]
-    pub fn size(&self) -> PhysicalSize<u32> {
-        PhysicalSize::new(self.config.width, self.config.height)
-    }
-
-    pub fn resize(&mut self, size: PhysicalSize<u32>, scale_factor: Option<f64>) {
-        if let Some(scale_factor) = scale_factor {
-            self.scale_factor = scale_factor;
-        }
+    fn resize(&mut self, size: PhysicalSize<u32>, scale_factor: f64) {
+        self.scale_factor = scale_factor;
 
         if size.width == 0 || size.height == 0 {
             return;
@@ -265,8 +278,8 @@ impl Renderer {
         self.surface.configure(&self.device, &self.config);
     }
 
-    pub fn render(&mut self, ctx: &mut Context) -> Result<(), wgpu::SurfaceError> {
-        let output = self.surface.get_current_texture()?;
+    fn render(&mut self, ctx: &mut Context) {
+        let output = self.surface.get_current_texture().unwrap();
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -421,8 +434,23 @@ impl Renderer {
         output.present();
 
         self.staging_belt.recall();
-    
-        Ok(())
+    }
+
+    #[inline]
+    fn text_size_handler(&self) -> Self::TextSizeHandler {
+        self.font_map.clone()
+    }
+
+    #[inline]
+    fn window(&self) -> &Window {
+        &self.window
+    }
+}
+
+impl Renderer {
+    #[inline]
+    pub fn size(&self) -> PhysicalSize<u32> {
+        PhysicalSize::new(self.config.width, self.config.height)
     }
 
     fn write_screen_size_buffer(&self, size: PhysicalSize<u32>) {
@@ -494,6 +522,7 @@ impl<'a> CommandHandler for Painter<'a> {
         }
     }
 
+    #[inline]
     fn rect_cmd(&mut self, rect: Rect, color: Color) {
         assert!(self.clip.is_none());
         
@@ -539,6 +568,7 @@ impl<'a> CommandHandler for Painter<'a> {
         self.draw_calls.push(MicrouiDrawCall::Text { font, pos, color, text, clip: self.clip.take() });
     }
 
+    #[inline]
     fn icon_cmd(
         &mut self,
         id: Icon,
@@ -546,8 +576,12 @@ impl<'a> CommandHandler for Painter<'a> {
         color: Color
     ) {
         let text = match id {
-          Icon::Close => "X",
-          _ => "+"
+            Icon::Close => "",
+            Icon::Resize => "樂",
+            Icon::Check => "",
+            Icon::Collapsed => "",
+            Icon::Expanded => "",
+            Icon::None => return
         }.into();
 
         self.draw_calls.push(MicrouiDrawCall::Icon { text, rect, color, clip: self.clip.take() });

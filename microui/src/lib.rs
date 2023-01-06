@@ -1180,7 +1180,6 @@ impl Context {
             self.is_hovered(id)
         {
             self.number_edit_id = Some(id);
-
             self.number_edit_buf.clear();
 
             let _ = write!(

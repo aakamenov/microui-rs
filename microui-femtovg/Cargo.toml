@@ -1,5 +1,5 @@
 [package]
-name = "microui-wgpu"
+name = "microui-femtovg"
 version = "0.1.0"
 edition = "2021"
 
@@ -10,8 +10,5 @@ wayland = ["microui-app/wayland"]
 
 [dependencies]
 microui-app = { path = "../microui-app" }
-wgpu = "0.14"
-wgpu_glyph = "0.18.0"
-env_logger = "0.9.0"
-pollster = "0.2.5"
-bytemuck = "1.12.1"
+femtovg = { version = "0.3.7", default-features = false }
+glutin = "0.28.0"

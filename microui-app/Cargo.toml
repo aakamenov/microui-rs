@@ -1,0 +1,13 @@
+[package]
+name = "microui-app"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["winit/default"]
+x11 = ["winit/x11"]
+wayland = ["winit/wayland"]
+
+[dependencies]
+microui = { path = "../microui" }
+winit = "0.26.1"
