@@ -2,6 +2,7 @@
 #![feature(variant_count)]
 
 pub mod const_vec;
+pub mod widget;
 mod text_buf;
 mod geometry;
 mod style;
@@ -11,10 +12,12 @@ pub use geometry::*;
 pub use style::*;
 pub use id::Id;
 pub use text_buf::TextBuf;
+pub use widget::*;
 
-use std::{ptr, cmp, mem, fmt::Write, ops, hash::Hash};
+use std::{ptr, cmp, mem, ops::Range, hash::Hash};
 
 use const_vec::{ConstVec, ConstStr};
+use widget::{Widget, Button, Label, Checkbox, TextBox, Slider, DragValue};
 
 pub const COMMAND_LIST_SIZE: usize = 4096;
 pub const ROOT_LIST_SIZE: usize = 32;
@@ -195,11 +198,6 @@ pub struct Container {
     tail: Option<usize>
 }
 
-pub enum TextBoxBuf<'a> {
-    Text(&'a mut dyn TextBuf),
-    Numeric
-}
-
 pub trait TextSizeHandler {
     fn text_width(&self, id: FontId, text: &str) -> i32;
     fn text_height(&self, id: FontId) -> i32;
@@ -250,7 +248,7 @@ struct PoolItem {
     last_update: FrameIdx
 }
 
-fn draw_frame(ctx: &mut Context, rect: Rect, color_id: WidgetColor) {
+pub fn draw_frame(ctx: &mut Context, rect: Rect, color_id: WidgetColor) {
     ctx.draw_rect(rect, ctx.style.colors[color_id]);
 
     if matches!(
@@ -343,7 +341,7 @@ impl Context {
 
         // Bring hover root to front if mouse was pressed
         if let Some(index) = self.next_hover_root {
-            if self.mouse_pressed() {
+            if self.mouse_any_pressed() {
                 let container = &mut self.containers[index];
 
                 if container.zindex < self.last_zindex &&
@@ -477,18 +475,78 @@ impl Context {
     }
 
     #[inline]
-    pub fn mouse_pressed(&self) -> bool {
+    pub fn scroll_delta(&self) -> Vec2 {
+        self.scroll_delta
+    }
+
+    #[inline]
+    pub fn mouse_delta(&self) -> Vec2 {
+        self.mouse_delta
+    }
+
+    #[inline]
+    pub fn mouse_pos(&self) -> Vec2 {
+        self.mouse_pos
+    }
+
+    #[inline]
+    pub fn last_mouse_pos(&self) -> Vec2 {
+        self.last_mouse_pos
+    }
+
+    #[inline]
+    pub fn mouse_any_pressed(&self) -> bool {
         self.mouse_pressed != MouseState::default()
     }
 
     #[inline]
-    pub fn mouse_released(&self) -> bool {
+    pub fn mouse_any_down(&self) -> bool {
+        self.mouse_down != MouseState::default()
+    }
+
+    #[inline]
+    pub fn mouse_any_released(&self) -> bool {
         self.mouse_released != MouseState::default()
     }
 
     #[inline]
-    pub fn mouse_down(&self) -> bool {
-        self.mouse_down != MouseState::default()
+    pub fn mouse_pressed(&self, btn: MouseButton) -> bool {
+        self.mouse_pressed.is_set(btn)
+    }
+
+    #[inline]
+    pub fn mouse_down(&self, btn: MouseButton) -> bool {
+        self.mouse_down.is_set(btn)
+    }
+
+    #[inline]
+    pub fn mouse_released(&self, btn: MouseButton) -> bool {
+        self.mouse_released.is_set(btn)
+    }
+
+    #[inline]
+    pub fn key_down(&self, key: ModKey) -> bool {
+        self.key_down.is_set(key)
+    }
+
+    #[inline]
+    pub fn key_pressed(&self, key: ModKey) -> bool {
+        self.key_pressed.is_set(key)
+    }
+
+    #[inline]
+    pub fn key_up(&self, key: ModKey) -> bool {
+        self.key_down.is_unset(key)
+    }
+
+    #[inline]
+    pub fn last_rect(&self) -> Rect {
+        self.last_rect
+    }
+
+    #[inline]
+    pub fn last_id(&self) -> Option<Id> {
+        self.last_id
     }
 
     #[inline]
@@ -935,6 +993,11 @@ impl Layout {
 //============================================================================
 
 impl Context {
+    #[inline(always)]
+    pub fn w(&mut self, widget: impl Widget) -> Response {
+        widget.draw(self)
+    }
+
     /// `color_id` must be either WidgetColor::Button or WidgetColor::Base.
     pub fn draw_widget_frame(
         &mut self,
@@ -1013,22 +1076,22 @@ impl Context {
 
         let mouse_over = self.is_mouse_over(rect);
 
-        if mouse_over && !self.mouse_down() {
+        if mouse_over && !self.mouse_any_down() {
             self.hover_id = Some(id);
         }
 
         if currently_focused {
-            if self.mouse_pressed() && !mouse_over {
+            if self.mouse_any_pressed() && !mouse_over {
                 self.set_focus(None);
             }
 
-            if !self.mouse_down() && options.is_unset(ContainerOption::HoldFocus) {
+            if !self.mouse_any_down() && options.is_unset(ContainerOption::HoldFocus) {
                 self.set_focus(None);
             }
         }
 
         if self.is_hovered(id) {
-            if self.mouse_pressed() {
+            if self.mouse_any_pressed() {
                 self.set_focus(Some(id));
             } else if !mouse_over {
                 self.hover_id = None;
@@ -1087,285 +1150,54 @@ impl Context {
         self.layout_end_column();
     }
 
+    /// Shorthand for `Label::new(text)`.
+    #[inline]
     pub fn label(&mut self, text: impl Into<String>) {
-        let text = text.into();
-        let layout = self.layout_next();
-
-        self.draw_widget_text(
-            text,
-            layout,
-            WidgetColor::Text,
-            ContainerOptions::default()
-        );
+        Label::new(text).draw(self);
     }
 
-    pub fn button(
-        &mut self,
-        label: impl Into<String>,
-        icon: Icon,
-        options: Option<ContainerOptions>
-    ) -> Response {
-        let mut resp = Response::default();
-
-        let label: String = label.into();
-        let options = options.unwrap_or(ContainerOptions(ContainerOption::AlignCenter as u16));
-
-        let id = if label.is_empty() {
-            self.create_id(&(icon as u8 as *const u8))
-        } else {
-            self.create_id(&label)
-        };
-
-        let rect = self.layout_next();
-        self.update_widget(id, rect, options);
-
-        if self.mouse_pressed.is_set(MouseButton::Left) && self.is_focused(id) {
-            resp.submit = true;
-        }
-
-        self.draw_widget_frame(id, rect, WidgetColor::Button, options);
-
-        if !label.is_empty() {
-            self.draw_widget_text(label, rect, WidgetColor::Text, options);
-        }
-
-        if !matches!(icon, Icon::None) {
-            self.draw_icon(icon, rect, self.style.colors[WidgetColor::Text]);
-        }
-
-        resp
+    /// Shorthand for `Button::new(text)`.
+    #[inline]
+    pub fn button(&mut self, text: impl Into<String>) -> bool {
+        Button::new(text).draw(self).submit
     }
 
-    pub fn checkbox(&mut self, label: impl Into<String>, checked: &mut bool) -> Response {
-        let mut resp = Response::default();
-
-        let id = self.create_id(&(checked as *const bool));
-        let r = self.layout_next();
-        let frame = rect(r.x, r.y, r.h, r.h);
-
-        self.update_widget(id, r, ContainerOptions::default());
-
-        if self.mouse_released.is_set(MouseButton::Left) && self.is_hovered(id) {
-            resp.change = true;
-            *checked = !*checked;
-        }
-
-        self.draw_widget_frame(id, frame, WidgetColor::Base, ContainerOptions::default());
-
-        if *checked {
-            self.draw_icon(Icon::Check, frame, self.style.colors[WidgetColor::Text]);
-        }
-
-        let r = rect(r.x + frame.w, r.y, r.w - frame.w, r.h);
-        self.draw_widget_text(label, r, WidgetColor::Text, ContainerOptions::default());
-
-        resp
+    /// Shorthand for `Checkbox::new(label, &mut checked)`.
+    /// 
+    /// Returns `true` if the checked state changed.
+    #[inline]
+    pub fn checkbox(&mut self, label: impl Into<String>, checked: &mut bool) -> bool {
+        Checkbox::new(label, checked).draw(self).change
     }
 
-    pub fn textbox(&mut self, buf: &mut impl TextBuf, options: ContainerOptions) -> Response {
-        let id = self.create_id(&buf.as_str().as_ptr());
-        let rect = self.layout_next();
-
-        self.textbox_raw(TextBoxBuf::Text(buf), id, rect, options)
+    /// Shorthand for `Textbox::new(buf)`
+    #[inline]
+    pub fn textbox(&mut self, buf: &mut impl TextBuf) -> Response {
+        TextBox::new(buf).draw(self)
     }
 
-    pub fn textbox_float(
-        &mut self,
-        value: &mut f64,
-        rect: Rect,
-        id: Id
-    ) -> bool {
-        if self.mouse_pressed.is_set(MouseButton::Left) &&
-            self.key_down.is_set(ModKey::Shift) &&
-            self.is_hovered(id)
-        {
-            self.number_edit_id = Some(id);
-            self.number_edit_buf.clear();
-
-            let _ = write!(
-                &mut self.number_edit_buf,
-                "{:.2}",
-                value
-            );
-        }
-
-        if self.number_edit_id.map_or(false, |x| x == id) {
-            let resp = self.textbox_raw(
-                TextBoxBuf::Numeric,
-                id,
-                rect,
-                ContainerOptions::default()
-            );
-
-            if resp.submit || !self.is_focused(id) {
-                if let Ok(val) = self.number_edit_buf.as_str().parse::<f64>() {
-                    *value = val;
-                }
-
-                self.number_edit_id = None;
-            } else {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    pub fn textbox_raw(
-        &mut self,
-        buf: TextBoxBuf,
-        id: Id,
-        r: Rect,
-        options: ContainerOptions
-    ) -> Response {
-        let mut resp = Response::default();
-
-        let mut opts_copy = options;
-        opts_copy.set(ContainerOption::HoldFocus);
-
-        self.update_widget(id, r, opts_copy);
-
-        let text: String = if self.is_focused(id) {
-            // Handle text input
-            let input = self.text_input.as_str();
-            let buf = match buf {
-                TextBoxBuf::Text(buf) => buf,
-                TextBoxBuf::Numeric => &mut self.number_edit_buf as &mut dyn TextBuf
-            };
-
-            if buf.push_str(input) > 0 {
-                resp.change = true;
-            }
-
-            if self.key_pressed.is_set(ModKey::Backspace) {
-                buf.pop_char();
-                resp.change = true;
-            }
-
-            let text = buf.as_str().into();
-
-            if self.key_pressed.is_set(ModKey::Return) {
-                self.set_focus(None);
-                resp.submit = true;
-            }
-
-            text
-        } else {
-            let buf = match buf {
-                TextBoxBuf::Text(buf) => buf,
-                TextBoxBuf::Numeric => &mut self.number_edit_buf as &mut dyn TextBuf
-            };
-
-            buf.as_str().into()
-        };
-
-        self.draw_widget_frame(id, r, WidgetColor::Base, options);
-
-        if self.is_focused(id) {
-            let color = self.style.colors[WidgetColor::Text];
-
-            let font = self.style.font;
-            let textw = self.font_handler.text_width(font, &text);
-            let texth = self.font_handler.text_height(font);
-
-            let offset = r.w - self.style.padding as i32 - textw - 1;
-            let textx = r.x + cmp::min(offset, self.style.padding as i32);
-            let texty = r.y + (r.h - texth) / 2;
-
-            self.push_clip_rect(r);
-            self.draw_text(font, text, vec2(textx, texty), color);
-            self.draw_rect(rect(textx + textw, texty, 1, texth), color);
-            self.pop_clip_rect();
-        } else {
-            self.draw_widget_text(text, r, WidgetColor::Text, options);
-        }
-
-        resp
-    }
-
+    /// Shorthand for `Slider::new(&mut value, range)`.
+    /// 
+    /// Returns `true` if the value changed.
+    #[inline]
     pub fn slider(
         &mut self,
         value: &mut f64,
-        range: ops::Range<f64>,
-        step: Option<f64>,
-        options: Option<ContainerOptions>
-    ) -> Response {
-        let mut resp = Response::default();
-        let options = options.unwrap_or(ContainerOptions(ContainerOption::AlignCenter as u16));
-
-        let last = *value;
-        let mut v = last;
-        let id = self.create_id(&(value as *const f64));
-        let base = self.layout_next();
-
-        if self.textbox_float(value, base, id) {
-            return Response::default();
-        }
-
-        self.update_widget(id, base, options);
-
-        if self.is_focused(id) && self.mouse_down.is_set(MouseButton::Left) {
-            v = range.start + (self.mouse_pos.x - base.x) as f64 * (range.end - range.start) / base.w as f64;
-
-            if let Some(step) = step {
-                v = ((v + step / 2f64) / step) * step;
-            }
-        }
-
-        v = v.clamp(range.start, range.end);
-        *value = v;
-
-        if last != v {
-            resp.change = true;
-        }
-
-        self.draw_widget_frame(id, base, WidgetColor::Base, options);
-
-        let w = self.style.thumb_size as i32;
-        let x = ((v - range.start) * (base.w - w) as f64 / (range.end - range.start)) as i32;
-
-        let thumb = rect(base.x + x, base.y, w, base.h);
-        self.draw_widget_frame(id, thumb, WidgetColor::Button, options);
-
-        let text = format!("{:.2}", v);
-        self.draw_widget_text(text, base, WidgetColor::Text, options);
-
-        resp
+        range: Range<f64>
+    ) -> bool {
+        Slider::new(value, range).draw(self).change
     }
 
-    pub fn number(
+    /// Shorthand for `DragValue::new(&mut value, step)`.
+    /// 
+    /// Returns `true` if the value changed.
+    #[inline]
+    pub fn drag_value(
         &mut self,
         value: &mut f64,
-        step: f64,
-        options: Option<ContainerOptions>
-    ) -> Response {
-        let mut resp = Response::default();
-        let options = options.unwrap_or(ContainerOptions(ContainerOption::AlignCenter as u16));
-
-        let id = self.create_id(&(value as *const f64));
-        let base = self.layout_next();
-        let last = *value;
-
-        if self.textbox_float(value, base, id) {
-            return resp;
-        }
-
-        self.update_widget(id, base, options);
-
-        if self.is_focused(id) && self.mouse_down.is_set(MouseButton::Left) {
-            *value += self.mouse_delta.x as f64 * step;
-        }
-
-        if *value != last {
-            resp.change = true;
-        }
-
-        self.draw_widget_frame(id, base, WidgetColor::Base, options);
-
-        let text = format!("{:.2}", *value);
-        self.draw_widget_text(text, base, WidgetColor::Text, options);
-
-        resp
+        step: f64
+    ) -> bool {
+        DragValue::new(value, step).draw(self).change
     }
 
     #[inline]
@@ -1516,7 +1348,7 @@ impl Context {
 
         // Close if this is a popup window and elsewhere was clicked.
         if options.is_set(ContainerOption::Popup) &&
-            self.mouse_pressed() &&
+            self.mouse_any_pressed() &&
             self.hover_root.map_or(false, |x| x != cnt_idx)
         {
             self.containers[cnt_idx].open = false;
