@@ -52,6 +52,7 @@ pub fn run<Renderer: MicrouiRenderer + 'static>(mut app: Box<dyn App>) {
 
     let mut current_scale_factor = renderer.window().scale_factor();
     let size = renderer.window().inner_size().to_logical::<i32>(current_scale_factor);
+
     let mut shell = Shell::new(vec2(size.width, size.height));
 
     event_loop.run(move |event, _, control_flow| match event {
@@ -61,6 +62,9 @@ pub fn run<Renderer: MicrouiRenderer + 'static>(mut app: Box<dyn App>) {
         } if window_id == renderer.window().id() => match event {
             WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
             WindowEvent::Resized(physical_size) => {
+                let size = physical_size.to_logical::<i32>(current_scale_factor);
+                shell.screen_size = vec2(size.width, size.height);
+
                 renderer.resize(*physical_size, current_scale_factor);
             }
             WindowEvent::ScaleFactorChanged {
