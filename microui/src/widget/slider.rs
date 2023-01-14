@@ -67,7 +67,7 @@ impl<'a> Widget for Slider<'a> {
         let id = ctx.create_id(&(self.value as *const f64));
         let base = ctx.layout_next();
 
-        if textbox::number(ctx, self.value, base, id) {
+        if textbox::number(ctx, &mut v, base, id) {
             return Response::default();
         }
 
