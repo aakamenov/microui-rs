@@ -18,7 +18,7 @@ pub struct Color {
     pub a: u8
 }
 
-pub struct WidgetColors([Color; WIDGET_COLOR_COUNT]);
+pub struct WidgetColors(pub [Color; WIDGET_COLOR_COUNT]);
 
 // Order of declaration is important here!
 #[repr(u8)]

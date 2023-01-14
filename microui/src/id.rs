@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     hash::{Hash, Hasher},
     ops::BitXor
 };
@@ -44,5 +45,11 @@ impl Hasher for Fnv1a {
         for i in 0..bytes.len() {
             self.0 = self.0.bitxor(bytes[i] as u64).wrapping_mul(1099511628211);
         }
+    }
+}
+
+impl fmt::Display for Id {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
     }
 }

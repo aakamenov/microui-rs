@@ -3,6 +3,7 @@ use std::{
     cmp::Ordering,
     ops::{Index, IndexMut},
     convert::AsRef,
+    fmt,
     any
 };
 
@@ -79,6 +80,11 @@ impl<T, const N: usize> ConstVec<T, N> {
     #[inline]
     pub fn capacity(&self) -> usize {
         N
+    }
+
+    #[inline]
+    pub fn free_space(&self) -> usize {
+        self.capacity() - self.len()
     }
 
     #[inline]
@@ -220,5 +226,26 @@ impl<T, const N: usize> AsRef<[T]> for ConstVec<T, N> {
 impl<T, const N: usize> Drop for ConstVec<T, N> {
     fn drop(&mut self) {
         self.clear();
+    }
+}
+
+impl<T: Clone + Copy, const N: usize> Clone for ConstVec<T, N> {
+    fn clone(&self) -> Self {
+        Self { index: self.index, items: self.items.clone() }
+    }
+}
+
+impl<T: Default, const N: usize> Default for ConstVec<T, N> {
+    fn default() -> Self {
+        let mut instance = Self::new();
+        instance.init_default();
+
+        instance
+    }
+}
+
+impl<T: fmt::Debug, const N: usize> fmt::Debug for ConstVec<T, N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.as_ref()).finish()
     }
 }
