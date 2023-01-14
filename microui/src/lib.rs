@@ -469,9 +469,26 @@ impl Context {
         id
     }
 
+    pub fn push_id(&mut self, item: &impl Hash) -> Id {
+        let id = self.create_id(item);
+        self.id_stack.push(id);
+
+        id
+    }
+
     #[inline]
     pub fn pop_id(&mut self) -> Option<Id> {
         self.id_stack.pop()
+    }
+
+    #[inline]
+    pub fn last_id(&self) -> Option<Id> {
+        self.last_id
+    }
+
+    #[inline]
+    pub fn last_rect(&self) -> Rect {
+        self.last_rect
     }
 
     #[inline]
@@ -537,16 +554,6 @@ impl Context {
     #[inline]
     pub fn key_up(&self, key: ModKey) -> bool {
         self.key_down.is_unset(key)
-    }
-
-    #[inline]
-    pub fn last_rect(&self) -> Rect {
-        self.last_rect
-    }
-
-    #[inline]
-    pub fn last_id(&self) -> Option<Id> {
-        self.last_id
     }
 
     #[inline]
@@ -1409,9 +1416,7 @@ impl Context {
         let name: String = name.into();
         assert!(!name.is_empty(), "Panel name string is empty.");
 
-        let id = self.create_id(&name);
-        self.id_stack.push(id);
-
+        let id = self.push_id(&name);
         let cnt_idx = self.get_container_impl(id, options);
 
         if cnt_idx.is_none() {
