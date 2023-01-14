@@ -25,7 +25,8 @@ pub struct Renderer {
     ctx: ContextWrapper<PossiblyCurrent, Window>,
     canvas: Canvas<OpenGl>,
     text_context: TextContext,
-    font_id: FemtovgFontId
+    font_id: FemtovgFontId,
+    clear_color: FemtovgColor
 }
 
 #[derive(Clone)]
@@ -62,7 +63,8 @@ impl MicrouiRenderer for Renderer {
             ctx,
             canvas,
             text_context,
-            font_id
+            font_id,
+            clear_color: FemtovgColor::black()
         };
 
         renderer
@@ -80,9 +82,13 @@ impl MicrouiRenderer for Renderer {
     }
 
     #[inline]
-    fn render(&mut self, ctx: &mut Context) {
+    fn render(&mut self, ctx: &mut Context, clear_color: Option<Color>) {
+        if let Some(color) = clear_color {
+            self.clear_color = FemtovgColor::rgba(color.r, color.g, color.b, color.a);
+        }
+
         let size = self.ctx.window().inner_size();
-        self.canvas.clear_rect(0, 0, size.width, size.height, FemtovgColor::black());
+        self.canvas.clear_rect(0, 0, size.width, size.height, self.clear_color);
 
         ctx.handle_commands(self);
 

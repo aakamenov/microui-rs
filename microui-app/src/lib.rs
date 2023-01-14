@@ -1,8 +1,11 @@
 use std::time::{Instant, Duration};
 
-use microui::{Context, TextSizeHandler, MouseButton, Vec2, vec2};
+use microui::{Context, TextSizeHandler, MouseButton, ModKey, Color, Vec2, vec2};
 use winit::{
-    event::{Event, WindowEvent, ElementState, MouseButton as WinitMouseBtn},
+    event::{
+        Event, WindowEvent, ElementState, MouseScrollDelta,
+        VirtualKeyCode, MouseButton as WinitMouseBtn
+    },
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
     dpi::PhysicalSize
@@ -13,10 +16,10 @@ pub use winit;
 
 pub trait App {
     fn init(&mut self) { }
-    fn frame(&mut self, ctx: &mut Context);
+    fn frame(&mut self, ctx: &mut Context, shell: &mut Shell);
 }
 
-pub trait MicrouiRenderer: Sized {
+pub trait MicrouiRenderer {
     type TextSizeHandler: TextSizeHandler;
 
     fn init(
@@ -25,14 +28,20 @@ pub trait MicrouiRenderer: Sized {
     ) -> Self;
     fn window(&self) -> &Window;
     fn resize(&mut self, size: PhysicalSize<u32>, scale_factor: f64);
-    fn render(&mut self, ctx: &mut Context);
+    fn render(&mut self, ctx: &mut Context, clear_color: Option<Color>);
     fn text_size_handler(&self) -> Self::TextSizeHandler;
+}
+
+#[derive(Clone)]
+pub struct Shell {
+    clear_color: Option<Color>,
+    screen_size: Vec2
 }
 
 pub fn run<Renderer: MicrouiRenderer + 'static>(mut app: Box<dyn App>) {
     let event_loop = EventLoop::new();
     let mut renderer = Renderer::init(
-        WindowBuilder::new(),
+        WindowBuilder::new().with_transparent(true),
         &event_loop
     );
 
@@ -42,6 +51,8 @@ pub fn run<Renderer: MicrouiRenderer + 'static>(mut app: Box<dyn App>) {
     let mut render_delta = Instant::now();
 
     let mut current_scale_factor = renderer.window().scale_factor();
+    let size = renderer.window().inner_size().to_logical::<i32>(current_scale_factor);
+    let mut shell = Shell::new(vec2(size.width, size.height));
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -57,6 +68,10 @@ pub fn run<Renderer: MicrouiRenderer + 'static>(mut app: Box<dyn App>) {
                 scale_factor
             } => {
                 current_scale_factor = *scale_factor;
+
+                let size = new_inner_size.to_logical::<i32>(current_scale_factor);
+                shell.screen_size = vec2(size.width, size.height);
+
                 renderer.resize(**new_inner_size, current_scale_factor);
             },
             WindowEvent::CursorMoved { position, .. } => {
@@ -80,14 +95,51 @@ pub fn run<Renderer: MicrouiRenderer + 'static>(mut app: Box<dyn App>) {
                     }
                 }
             }
+            WindowEvent::MouseWheel { delta, .. } => {
+                match delta {
+                    MouseScrollDelta::LineDelta(x, y) => {
+                        let speed = 30.0f32;
+                        ctx.input_scroll(vec2(-(x * speed) as i32, -(y * speed) as i32));
+                    }
+                    _ => unimplemented!()
+                }
+            }
+            WindowEvent::ReceivedCharacter(c) => {
+                // Winit also sends non-text characters here.
+                if c.is_alphanumeric() || c.is_ascii_punctuation() {
+                    let mut buf = [0; 4];
+                    let text = c.encode_utf8(&mut buf);
+
+                    ctx.input_text(&text[0..c.len_utf8()]);
+                }
+            },
+            WindowEvent::KeyboardInput { input, .. } => {
+                if let Some(key) = input.virtual_keycode {
+                    let key = match key {
+                        VirtualKeyCode::LShift | VirtualKeyCode::RShift => Some(ModKey::Shift),
+                        VirtualKeyCode::LControl | VirtualKeyCode::RControl => Some(ModKey::Ctrl),
+                        VirtualKeyCode::LAlt | VirtualKeyCode::RAlt => Some(ModKey::Alt),
+                        VirtualKeyCode::Back => Some(ModKey::Backspace),
+                        VirtualKeyCode::Return => Some(ModKey::Return),
+                        _ => None
+                    };
+
+                    if let Some(key) = key {
+                        match input.state {
+                            ElementState::Pressed => ctx.input_key_down(key),
+                            ElementState::Released => ctx.input_key_up(key)
+                        }
+                    }
+                }
+            }
             _ => {}
         },
         Event::RedrawRequested(id) if id == renderer.window().id() => {
             ctx.begin();
-            app.frame(&mut ctx);
+            app.frame(&mut ctx, &mut shell);
             ctx.end();
 
-            renderer.render(&mut ctx);
+            renderer.render(&mut ctx, shell.clear_color.take());
 
             render_delta = Instant::now();
         },
@@ -99,4 +151,24 @@ pub fn run<Renderer: MicrouiRenderer + 'static>(mut app: Box<dyn App>) {
         }
         _ => {}
     });
+}
+
+impl Shell {
+    #[inline]
+    pub fn set_clear_color(&mut self, color: Color) {
+        self.clear_color = Some(color);
+    }
+
+    #[inline]
+    pub fn screen_size(&self) -> Vec2 {
+        self.screen_size
+    }
+
+    #[inline]
+    fn new(screen_size: Vec2) -> Self {
+        Self {
+            clear_color: Some(Color::rgb(90, 95, 100)),
+            screen_size
+        }
+    }
 }

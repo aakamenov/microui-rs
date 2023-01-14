@@ -444,6 +444,11 @@ impl Context {
     }
 
     #[inline]
+    pub fn current_frame(&self) -> FrameIdx {
+        self.frame
+    }
+
+    #[inline]
     pub fn is_focused(&self, id: Id) -> bool {
         self.focus_id.map_or(false, |x| x == id)
     }
@@ -812,7 +817,8 @@ impl Context {
 
     #[inline]
     pub fn input_scroll(&mut self, delta: Vec2) {
-        self.scroll_delta = delta;
+        self.scroll_delta.x += delta.x;
+        self.scroll_delta.y += delta.y;
     }
 
     #[inline]

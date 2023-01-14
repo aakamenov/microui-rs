@@ -1,4 +1,4 @@
-use std::{mem, num::NonZeroU64, rc::Rc};
+use std::rc::Rc;
 
 use microui_app::{
     MicrouiRenderer,
@@ -15,18 +15,18 @@ use microui_app::{
 
 use wgpu::util::StagingBelt;
 use wgpu_glyph::{
-    GlyphBrush, GlyphBrushBuilder, Section, Text, Region,
+    GlyphBrush, Section, Text, Region,
     FontId as GlyphBrushFontId, ab_glyph::{FontArc, Font, ScaleFont},
     orthographic_projection
 };
 
 use bytemuck::{Pod, Zeroable};
-use pollster::FutureExt;
+//use pollster::FutureExt;
 
-const DEFAULT_FONT: &[u8] = include_bytes!("../../fonts/ProggyClean.ttf");
+//const DEFAULT_FONT: &[u8] = include_bytes!("../../fonts/ProggyClean.ttf");
 const FONT_SIZE_PT: f32 = 16.0;
-const INDEX_BUFFER_INITIAL_LEN: u64 = 1024;
-const VERTEX_BUFFER_INITIAL_LEN: u64 = 512;
+//const INDEX_BUFFER_INITIAL_LEN: u64 = 1024;
+//const VERTEX_BUFFER_INITIAL_LEN: u64 = 512;
 
 pub struct Renderer {
     pub scale_factor: f64,
@@ -86,9 +86,10 @@ impl MicrouiRenderer for Renderer {
     type TextSizeHandler = FontMap;
 
     fn init(
-        window_builder: WindowBuilder,
-        event_loop: &EventLoop<()>
+        _window_builder: WindowBuilder,
+        _event_loop: &EventLoop<()>
     ) -> Self {
+        /*
         env_logger::init();
 
         let window = window_builder.build(&event_loop).unwrap();
@@ -262,6 +263,9 @@ impl MicrouiRenderer for Renderer {
         instance.write_screen_size_buffer(size);
 
         instance
+        */
+
+        unimplemented!()
     }
 
     fn resize(&mut self, size: PhysicalSize<u32>, scale_factor: f64) {
@@ -278,7 +282,7 @@ impl MicrouiRenderer for Renderer {
         self.surface.configure(&self.device, &self.config);
     }
 
-    fn render(&mut self, ctx: &mut Context) {
+    fn render(&mut self, ctx: &mut Context, _clear_color: Option<Color>) {
         let output = self.surface.get_current_texture().unwrap();
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -588,12 +592,14 @@ impl<'a> CommandHandler for Painter<'a> {
     }
 }
 
+/*
 impl FontMap {
     #[inline]
     fn new(initial: FontArc) -> Self {
         Self(Rc::new(vec![initial]))
     }
 }
+*/
 
 impl TextSizeHandler for FontMap {
     fn text_width(&self, id: FontId, text: &str) -> i32 {

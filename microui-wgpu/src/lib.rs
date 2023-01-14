@@ -1,4 +1,4 @@
-pub use microui_app::{microui, App};
+pub use microui_app::{microui, App, Shell};
 
 mod renderer;
 
