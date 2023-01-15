@@ -93,7 +93,9 @@ impl Widget for Button {
         ctx.draw_widget_frame(id, rect, WidgetColor::Button, self.options);
 
         match self.content {
-            Content::Text(text) => ctx.draw_widget_text(text, rect, WidgetColor::Text, self.options),
+            Content::Text(text) => {
+                ctx.draw_widget_text(text, rect, WidgetColor::Text, self.options);
+            },
             Content::Icon(icon) => {
                 if !matches!(icon, Icon::None) {
                     ctx.draw_icon(icon, rect, ctx.style.colors[WidgetColor::Text]);

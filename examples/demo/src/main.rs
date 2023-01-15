@@ -98,8 +98,13 @@ impl Demo {
     
                 if ctx.begin_treenode("Test 1", ContainerOptions::default()).active {
                     if ctx.begin_treenode("Test 1a", ContainerOptions::default()).active {
-                        ctx.label("Hello");
-                        ctx.label("World");
+                        if ctx.clickable_label("Click me!") {
+                            self.write_log("Clicked on label 1");
+                        }
+
+                        if ctx.clickable_label("Click me 2!") {
+                            self.write_log("Clicked on label 2");
+                        }
     
                         ctx.end_treenode();
                     }

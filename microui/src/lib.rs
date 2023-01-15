@@ -17,7 +17,10 @@ pub use widget::*;
 use std::{ptr, cmp, mem, ops::Range, hash::Hash};
 
 use const_vec::{ConstVec, ConstStr};
-use widget::{Widget, Button, Label, Checkbox, TextBox, Slider, DragValue};
+use widget::{
+    Widget, Button, Label, ClickableLabel,
+    Checkbox, TextBox, Slider, DragValue
+};
 
 pub const COMMAND_LIST_SIZE: usize = 4096;
 pub const ROOT_LIST_SIZE: usize = 32;
@@ -1060,13 +1063,14 @@ impl Context {
         (self.draw_frame)(self, rect, unsafe { mem::transmute(color_id) });
     }
 
+    /// Returns the [`Rect`] of the measured text with clipping **taken into account**.
     pub fn draw_widget_text(
         &mut self,
         text: impl Into<String>,
         rect: Rect,
         color_id: WidgetColor,
         options: ContainerOptions
-    ) {
+    ) -> Rect {
         let text: String = text.into();
 
         let font = self.style.font;
@@ -1083,7 +1087,7 @@ impl Context {
         } else {
             rect.x + self.style.padding as i32
         };
-        
+
         self.draw_text(
             font,
             text,
@@ -1092,6 +1096,13 @@ impl Context {
         );
 
         self.pop_clip_rect();
+
+        let x = cmp::max(rect.x, pos.x);
+        let y = cmp::max(rect.y, pos.y);
+        let width = cmp::min(width, rect.w);
+        let height = cmp::min(height, rect.h);
+
+        crate::rect(x, y, width, height)
     }
 
     pub fn is_mouse_over(&self, rect: Rect) -> bool {
@@ -1201,6 +1212,12 @@ impl Context {
     #[inline]
     pub fn label(&mut self, text: impl Into<String>) {
         Label::new(text).draw(self);
+    }
+
+    /// Shorthand for `ClickableLabel::new(text)`.
+    #[inline]
+    pub fn clickable_label(&mut self, text: impl Into<String>) -> bool {
+        ClickableLabel::new(text).draw(self).submit
     }
 
     /// Shorthand for `Button::new(text)`.
