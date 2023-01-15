@@ -1,13 +1,16 @@
 use std::time::{Instant, Duration};
 
-use microui::{Context, TextSizeHandler, MouseButton, ModKey, Color, Vec2, vec2};
+use microui::{
+    Context, TextSizeHandler, MouseButton, ModKey,
+    CursorIcon, Color, Vec2, vec2
+};
 use winit::{
     event::{
         Event, WindowEvent, ElementState, MouseScrollDelta,
         VirtualKeyCode, MouseButton as WinitMouseBtn
     },
     event_loop::{ControlFlow, EventLoop},
-    window::{Window, WindowBuilder},
+    window::{Window, WindowBuilder, CursorIcon as WinitCursorIcon},
     dpi::PhysicalSize
 };
 
@@ -143,6 +146,21 @@ pub fn run<Renderer: MicrouiRenderer + 'static>(mut app: Box<dyn App>) {
             app.frame(&mut ctx, &mut shell);
             ctx.end();
 
+            let cursor_icon = match ctx.cursor_icon() {
+                Some(icon) => {
+                    let icon = match icon {
+                        CursorIcon::Text => Some(WinitCursorIcon::Text),
+                        CursorIcon::Hand => Some(WinitCursorIcon::Hand),
+                        CursorIcon::Resize => Some(WinitCursorIcon::SeResize),
+                        CursorIcon::Drag => Some(WinitCursorIcon::EwResize)
+                    };
+
+                    icon.unwrap_or(WinitCursorIcon::Default)
+                },
+                None => WinitCursorIcon::Default
+            };
+            
+            renderer.window().set_cursor_icon(cursor_icon);
             renderer.render(&mut ctx, shell.clear_color.take());
 
             render_delta = Instant::now();

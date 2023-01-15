@@ -2,8 +2,8 @@ use std::{cmp, fmt::Write};
 
 use crate::{
     Context, ContainerOptions, ContainerOption, MouseButton,
-    ModKey, Id, Rect, WidgetColor, Response, TextBuf,
-    vec2, rect
+    CursorIcon, WidgetInteraction, ModKey, Id, Rect, Response,
+    WidgetColor, TextBuf, vec2, rect
 };
 use super::Widget;
 
@@ -46,7 +46,11 @@ pub fn raw(
     let mut opts_copy = options;
     opts_copy.set(ContainerOption::HoldFocus);
 
-    ctx.update_widget(id, r, opts_copy);
+    ctx.update_widget(
+        id,
+        r,
+        WidgetInteraction::from(opts_copy).cursor(CursorIcon::Text)
+    );
 
     let text: String = if ctx.is_focused(id) {
         // Handle text input

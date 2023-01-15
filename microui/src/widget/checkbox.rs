@@ -1,4 +1,8 @@
-use crate::{Context, Response, ContainerOptions, Icon, WidgetColor, MouseButton, rect};
+use crate::{
+    Context, Response, ContainerOptions, Icon,
+    WidgetColor, WidgetInteraction, MouseButton,
+    rect
+};
 use super::Widget;
 
 #[derive(Debug)]
@@ -25,7 +29,7 @@ impl<'a> Widget for Checkbox<'a> {
         let r = ctx.layout_next();
         let frame = rect(r.x, r.y, r.h, r.h);
 
-        ctx.update_widget(id, r, ContainerOptions::default());
+        ctx.update_widget(id, r, WidgetInteraction::default());
 
         if ctx.mouse_released.is_set(MouseButton::Left) && ctx.is_hovered(id) {
             resp.change = true;

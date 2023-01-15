@@ -1,6 +1,6 @@
 use crate::{
-    Context, ContainerOptions, ContainerOption,
-    MouseButton, Icon, WidgetColor, Response
+    Context, ContainerOptions, ContainerOption, MouseButton,
+    Icon, WidgetInteraction, WidgetColor, Response
 };
 use super::{Widget, HorizontalAlign};
 
@@ -84,7 +84,7 @@ impl Widget for Button {
         };
 
         let rect = ctx.layout_next();
-        ctx.update_widget(id, rect, self.options);
+        ctx.update_widget(id, rect, WidgetInteraction::from(self.options));
 
         if ctx.mouse_pressed(MouseButton::Left) && ctx.is_focused(id) {
             resp.submit = true;

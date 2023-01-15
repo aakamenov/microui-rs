@@ -71,6 +71,7 @@ pub struct Context {
     pub draw_frame: DrawFrameFn,
     pub style: Style,
     font_handler: Box<dyn TextSizeHandler>,
+    cursor_icon: Option<CursorIcon>,
     hover_id: Option<Id>,
     focus_id: Option<Id>,
     last_id: Option<Id>,
@@ -112,6 +113,15 @@ pub enum Icon {
     Check,
     Collapsed,
     Expanded,
+    Resize
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[repr(u8)]
+pub enum CursorIcon {
+    Hand,
+    Text,
+    Drag,
     Resize
 }
 
@@ -221,6 +231,13 @@ pub trait CommandHandler {
     );
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub struct WidgetInteraction {
+    options: ContainerOptions,
+    cursor: Option<CursorIcon>,
+    retain_cursor_focus: bool
+}
+
 #[derive(Debug)]
 enum Command {
     Jump(usize),
@@ -281,6 +298,7 @@ impl Context {
         }
 
         let mut ptr = unsafe { &mut *ctx_ptr };
+        ptr.cursor_icon = None;
         ptr.draw_frame = draw_frame;
         ptr.style = Style::default();
         ptr.hover_id = None;
@@ -316,6 +334,7 @@ impl Context {
     pub fn begin(&mut self) {
         self.command_list.clear();
         self.root_list.clear();
+        self.cursor_icon = None;
         self.scroll_target = None;
         self.hover_root = self.next_hover_root.take();
         self.mouse_delta.x = self.mouse_pos.x - self.last_mouse_pos.x;
@@ -441,6 +460,11 @@ impl Context {
         unsafe {
             self.command_list.set_len(0);
         }
+    }
+
+    #[inline]
+    pub fn cursor_icon(&self) -> Option<CursorIcon> {
+        self.cursor_icon
     }
 
     #[inline]
@@ -1076,14 +1100,14 @@ impl Context {
             self.in_hover_root()
     }
 
-    pub fn update_widget(&mut self, id: Id, rect: Rect, options: ContainerOptions) {
+    pub fn update_widget(&mut self, id: Id, rect: Rect, interact: WidgetInteraction) {
         let currently_focused = self.is_focused(id);
 
         if currently_focused {
             self.updated_focus = true;
         }
 
-        if options.is_set(ContainerOption::NoInteract) {
+        if interact.options.is_set(ContainerOption::NoInteract) {
             return;
         }
 
@@ -1098,7 +1122,7 @@ impl Context {
                 self.set_focus(None);
             }
 
-            if !self.mouse_any_down() && options.is_unset(ContainerOption::HoldFocus) {
+            if !self.mouse_any_down() && interact.options.is_unset(ContainerOption::HoldFocus) {
                 self.set_focus(None);
             }
         }
@@ -1109,6 +1133,16 @@ impl Context {
             } else if !mouse_over {
                 self.hover_id = None;
             }
+        }
+
+        if interact.cursor.is_some() {
+            // We don't want to change the cursor if another widget
+            // wants to retain its cursor while focused.
+            let hovered = self.is_hovered(id) && self.cursor_icon.is_none();
+
+            if (self.is_focused(id) && interact.retain_cursor_focus) || hovered {
+                self.cursor_icon = interact.cursor;
+            } 
         }
     }
 
@@ -1293,7 +1327,7 @@ impl Context {
 
             // Title text
             let id = self.create_id(&"!title");
-            self.update_widget(id, title_rect, options);
+            self.update_widget(id, title_rect, WidgetInteraction::from(options));
             self.draw_widget_text(title, title_rect, WidgetColor::TitleText, options);
 
             if self.is_focused(id) && self.mouse_down.is_set(MouseButton::Left) {
@@ -1317,7 +1351,11 @@ impl Context {
                 title_rect.w -= r.w;
 
                 self.draw_icon(Icon::Close, r, self.style.colors[WidgetColor::TitleText]);
-                self.update_widget(id, r, options);
+                self.update_widget(
+                    id,
+                    r,
+                    WidgetInteraction::from(options).cursor(CursorIcon::Hand)
+                );
 
                 if self.is_hovered(id) && self.mouse_released.is_set(MouseButton::Left) {
                     self.containers[cnt_idx].open = false;
@@ -1336,7 +1374,13 @@ impl Context {
             };
 
             self.draw_icon(Icon::Resize, r, self.style.colors[WidgetColor::Text]);
-            self.update_widget(id, r, options);
+            self.update_widget(
+                id,
+                r,
+                WidgetInteraction::from(options)
+                    .cursor(CursorIcon::Resize)
+                    .retain_cursor_focus()
+            );
 
             if self.is_focused(id) && self.mouse_down.is_set(MouseButton::Left) {
                 let cnt_rect = self.containers[cnt_idx].rect;
@@ -1472,7 +1516,7 @@ impl Context {
         self.layout_row(&[-1], 0);
 
         let mut r = self.layout_next();
-        self.update_widget(id, r, ContainerOptions::default());
+        self.update_widget(id, r, WidgetInteraction::default());
 
         if self.mouse_pressed.is_set(MouseButton::Left) && self.is_focused(id) {
             active = !active;
@@ -1655,7 +1699,7 @@ macro_rules! scrollbar {
                 base.$x = body.$x + body.$w;
                 base.w = self.style.scrollbar_size as i32;
 
-                self.update_widget(id, base, ContainerOptions::default());
+                self.update_widget(id, base, WidgetInteraction::default());
 
                 if self.is_focused(id) && self.mouse_down.is_set(MouseButton::Left) {
                     self.containers[cnt_idx].scroll.$y += self.mouse_delta.$y * content_size.$y / base.$h;
@@ -1686,4 +1730,56 @@ macro_rules! scrollbar {
 impl Context {
     scrollbar!(scrollbar_v, x, y, w, h);
     scrollbar!(scrollbar_h, y, x, h, w);
+}
+
+impl WidgetInteraction {
+    #[inline]
+    pub fn cursor(mut self, cursor: CursorIcon) -> Self {
+        self.cursor = Some(cursor);
+
+        self
+    }
+
+    /// The cursor should remain even if the widget is not being
+    /// hovered as long as it has focus. Only has effect if [`WidgetInteraction::cursor`]
+    /// was set.
+    /// 
+    /// For example, this should be set for widgets like window resize
+    /// or drag value because the mouse can leave the widget bounds while
+    /// dragging but we still want to display the cursor icon since the
+    /// action is still in progress.
+    /// 
+    /// But for textboxes we don't want to retain cursor focus because
+    /// even if the textbox has focus we only want to display the text
+    /// cursor only when we are hovering over it.
+    #[inline]
+    pub fn retain_cursor_focus(mut self) -> Self {
+        self.retain_cursor_focus = true;
+
+        self
+    }
+
+    #[inline]
+    pub fn no_interact(mut self) -> Self {
+        self.options.set(ContainerOption::NoInteract);
+
+        self
+    }
+
+    #[inline]
+    pub fn hold_focus(mut self) -> Self {
+        self.options.set(ContainerOption::HoldFocus);
+
+        self
+    }
+}
+
+impl From<ContainerOptions> for WidgetInteraction {
+    fn from(options: ContainerOptions) -> Self {
+        Self {
+            options,
+            cursor: None,
+            retain_cursor_focus: false
+        }
+    }
 }

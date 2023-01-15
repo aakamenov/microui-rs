@@ -1,6 +1,6 @@
 use crate::{
-    Context, ContainerOptions, ContainerOption,
-    MouseButton, WidgetColor, Response
+    Context, ContainerOptions, ContainerOption, MouseButton,
+    WidgetColor, WidgetInteraction, CursorIcon, Response
 };
 use super::{Widget, HorizontalAlign, textbox};
 
@@ -65,7 +65,13 @@ impl<'a> Widget for DragValue<'a> {
             return resp;
         }
 
-        ctx.update_widget(id, base, self.options);
+        ctx.update_widget(
+            id,
+            base,
+            WidgetInteraction::from(self.options)
+                .cursor(CursorIcon::Drag)
+                .retain_cursor_focus()
+        );
 
         if ctx.is_focused(id) && ctx.mouse_down(MouseButton::Left) {
             *self.value += ctx.mouse_delta().x as f64 * self.step;

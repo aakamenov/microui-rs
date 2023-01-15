@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use crate::{
-    Context, ContainerOptions, ContainerOption,
-    MouseButton, WidgetColor, Response, rect
+    Context, ContainerOptions, ContainerOption, MouseButton,
+    WidgetInteraction, WidgetColor, Response, rect
 };
 use super::{Widget, HorizontalAlign, textbox};
 
@@ -71,7 +71,7 @@ impl<'a> Widget for Slider<'a> {
             return Response::default();
         }
 
-        ctx.update_widget(id, base, self.options);
+        ctx.update_widget(id, base, WidgetInteraction::from(self.options));
 
         if ctx.is_focused(id) && ctx.mouse_down.is_set(MouseButton::Left) {
             v = self.range.start + (ctx.mouse_pos().x - base.x) as f64 * (self.range.end - self.range.start) / base.w as f64;
