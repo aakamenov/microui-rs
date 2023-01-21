@@ -1,4 +1,6 @@
 pub mod textbox;
+pub mod dropdown;
+
 mod button;
 mod label;
 mod checkbox;
@@ -10,7 +12,8 @@ pub use label::*;
 pub use checkbox::*;
 pub use textbox::TextBox;
 pub use slider::*;
-pub use drag_value::DragValue;
+pub use drag_value::*;
+pub use dropdown::*;
 
 use crate::{Context, Response, ContainerOption};
 

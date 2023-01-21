@@ -12,15 +12,11 @@ pub use geometry::*;
 pub use style::*;
 pub use id::Id;
 pub use text_buf::TextBuf;
-pub use widget::*;
+pub use widget::{textbox, dropdown, *};
 
 use std::{ptr, cmp, mem, ops::Range, hash::Hash};
 
 use const_vec::{ConstVec, ConstStr};
-use widget::{
-    Widget, Button, Label, ClickableLabel,
-    Checkbox, TextBox, Slider, DragValue
-};
 
 pub const COMMAND_LIST_SIZE: usize = 4096;
 pub const ROOT_LIST_SIZE: usize = 32;
@@ -730,6 +726,12 @@ impl Context {
         self.containers.len()
     }
 
+    #[inline]
+    pub fn bring_to_front(&mut self, index: usize) {
+        self.last_zindex += 1;
+        self.containers[index].zindex = self.last_zindex;
+    }
+
     fn get_container_impl(&mut self, id: Id, options: ContainerOptions) -> Option<usize> {
         let index = self.container_pool.find_by_id(id);
 
@@ -1264,6 +1266,17 @@ impl Context {
         DragValue::new(value, step).draw(self).change
     }
 
+    /// Shorthand for `Dropdown::new(&mut state)`.
+    /// 
+    /// Returns `true` if a value was selected.
+    #[inline]
+    pub fn dropdown(
+        &mut self,
+        state: &mut dropdown::State,
+    ) -> bool {
+        Dropdown::new(state).draw(self).submit
+    }
+
     #[inline]
     pub fn header(
         &mut self,
@@ -1293,9 +1306,8 @@ impl Context {
     pub fn end_treenode(&mut self) {
         if let Some(layout) = self.layout_stack.last_mut() {
             layout.indent -= self.style.indent as i32;
+            self.pop_id();
         }
-
-        self.pop_id();
     }
 
     pub fn begin_window(
@@ -1439,23 +1451,23 @@ impl Context {
         self.end_root_container();
     }
 
-    pub fn open_popup(&mut self, name: impl Into<String>) {
-        let name: String = name.into();
+    pub fn open_popup(&mut self, name: &str) {
         let id = self.create_id(&name);
 
-        let cnt_idx = self.get_container_impl(id, ContainerOptions::default()).unwrap();
+        if let Some(cnt_idx) = self.get_container_impl(
+            id,
+            ContainerOptions::default()
+        ) {
+            // Set as hover root so popup isn't closed in begin_window()
+            self.hover_root = Some(cnt_idx);
+            self.next_hover_root = Some(cnt_idx);
 
-        // Set as hover root so popup isn't closed in begin_window()
-        self.hover_root = Some(cnt_idx);
-        self.next_hover_root = Some(cnt_idx);
+            // Position at mouse cursor, open and bring to front.
+            self.containers[cnt_idx].rect = rect(self.mouse_pos.x, self.mouse_pos.y, 1, 1);
+            self.containers[cnt_idx].open = true;
 
-        // Position at mouse cursor, open and bring to front.
-        self.containers[cnt_idx].rect = rect(self.mouse_pos.x, self.mouse_pos.y, 1, 1);
-        self.containers[cnt_idx].open = true;
-
-        // Bring to front
-        self.last_zindex += 1;
-        self.containers[cnt_idx].zindex = self.last_zindex;
+            self.bring_to_front(cnt_idx);
+        }
     }
 
     pub fn begin_popup(&mut self, name: impl Into<String>) -> bool {

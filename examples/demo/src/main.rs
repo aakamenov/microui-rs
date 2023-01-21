@@ -2,6 +2,7 @@ use microui_femtovg::{App, Shell, run, microui::{*, const_vec::ConstStr}};
 
 #[derive(Debug)]
 struct Demo {
+    dropdown_state: dropdown::State,
     checkboxes: [bool; 3],
     background: Color,
     textbox_state: ConstStr<128>,
@@ -10,7 +11,12 @@ struct Demo {
 }
 
 fn main() {
+    const CHOICES: &[&str] = &["Option 1", "Option 2", "Option 3", "Option 4", "Option 5", "Option 6"];
+    
     run(Box::new(Demo {
+        dropdown_state: dropdown::State::new(
+            Vec::from_iter(CHOICES.iter().map(|x| x.to_string()))
+        ),
         checkboxes: Default::default(),
         background: Color::rgb(90, 95, 100),
         textbox_state: ConstStr::new(), 
@@ -31,13 +37,13 @@ impl Demo {
     fn test_window(&mut self, ctx: &mut Context, shell: &mut Shell) {
         if ctx.begin_window(
             "Demo Window",
-            rect(40, 40, 333, 450),
+            rect(40, 40, 335, 450),
             ContainerOptions::default()
         ) {
             if let Some(index) = ctx.current_container_index() {
                 let container = ctx.get_container_mut(index);
     
-                container.rect.w = container.rect.w.max(240);
+                container.rect.w = container.rect.w.max(335);
                 container.rect.h = container.rect.h.max(300);
             }
     
@@ -60,7 +66,7 @@ impl Demo {
             if ctx.header("Test Buttons", opts).active {
                 ctx.layout_row(&[108, -110, -1], 0);
     
-                ctx.label("Test buttons 1:");
+                ctx.label("Test buttons:");
                 if ctx.button("Button 1") {
                     self.write_log("Pressed button 1");
                 }
@@ -69,9 +75,10 @@ impl Demo {
                     self.write_log("Pressed button 2");
                 }
     
-                ctx.label("Test buttons 2:");
-                if ctx.button("Button 3") {
-                    self.write_log("Pressed button 3");
+                ctx.label("Popup widgets:");
+                
+                if ctx.dropdown(&mut self.dropdown_state) {
+                    self.write_log(format!("Selected {}", self.dropdown_state.selected()));
                 }
     
                 let popup_name = "Test Popup";
