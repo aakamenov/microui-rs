@@ -8,9 +8,7 @@ use crate::{
     geometry::{Vec2, vec2}
 };
 
-const WIDGET_COLOR_COUNT: usize = mem::variant_count::<WidgetColor>();
-
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
@@ -18,7 +16,7 @@ pub struct Color {
     pub a: u8
 }
 
-pub struct WidgetColors(pub [Color; WIDGET_COLOR_COUNT]);
+pub struct WidgetColors(pub [Color; Self::COUNT]);
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
@@ -66,6 +64,10 @@ impl Color {
     }
 }
 
+impl WidgetColors {
+    pub const COUNT: usize = mem::variant_count::<WidgetColor>();
+}
+
 impl Index<WidgetColor> for WidgetColors {
     type Output = Color;
 
@@ -103,7 +105,7 @@ impl Default for WidgetColors {
     fn default() -> Self {
         use WidgetColor::*;
 
-        let mut c = Self([Color::TRANSPARENT; WIDGET_COLOR_COUNT]);
+        let mut c = Self([Color::TRANSPARENT; Self::COUNT]);
         
         c[Text] = Color::rgb(230, 230, 230);
         c[Border] = Color::rgb(25, 25, 25);

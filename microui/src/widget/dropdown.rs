@@ -176,7 +176,7 @@ fn dropdown_entry(ctx: &mut Context, text: &str, options: ContainerOptions) -> b
     let id = ctx.create_id(&text);
 
     let rect = ctx.layout_next();
-    ctx.update_widget(id, rect, WidgetInteraction::from(options));
+    ctx.update_widget(id, rect, WidgetInteraction::default());
 
     if ctx.mouse_pressed(MouseButton::Left) && ctx.is_focused(id) {
         resp = true;

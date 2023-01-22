@@ -18,7 +18,7 @@ pub use microui;
 pub use winit;
 
 pub trait App {
-    fn init(&mut self) { }
+    fn setup(&mut self, _ctx: &mut Context, _shell: &mut Shell) { }
     fn frame(&mut self, ctx: &mut Context, shell: &mut Shell);
 }
 
@@ -57,6 +57,8 @@ pub fn run<Renderer: MicrouiRenderer + 'static>(mut app: Box<dyn App>) {
     let size = renderer.window().inner_size().to_logical::<i32>(current_scale_factor);
 
     let mut shell = Shell::new(vec2(size.width, size.height));
+
+    app.setup(&mut ctx, &mut shell);
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {

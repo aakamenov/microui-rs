@@ -1,8 +1,10 @@
 use microui_femtovg::{App, Shell, run, microui::{*, const_vec::ConstStr}};
+use microui_theme::catppuccin;
 
 #[derive(Debug)]
 struct Demo {
     dropdown_state: dropdown::State,
+    themes: dropdown::State,
     checkboxes: [bool; 3],
     background: Color,
     textbox_state: ConstStr<128>,
@@ -12,10 +14,14 @@ struct Demo {
 
 fn main() {
     const CHOICES: &[&str] = &["Option 1", "Option 2", "Option 3", "Option 4", "Option 5", "Option 6"];
+    const THEMES: &[&str] = &["Default", "Catppuccin Latte", "Catppuccin Frappe", "Catppuccin Macchiato", "Catppuccin Mocha"];
     
     run(Box::new(Demo {
         dropdown_state: dropdown::State::new(
             Vec::from_iter(CHOICES.iter().map(|x| x.to_string()))
+        ),
+        themes: dropdown::State::new(
+            Vec::from_iter(THEMES.iter().map(|x| x.to_string()))
         ),
         checkboxes: Default::default(),
         background: Color::rgb(90, 95, 100),
@@ -132,7 +138,7 @@ impl Demo {
                 }
     
                 if ctx.begin_treenode("Test 2", ContainerOptions::default()).active {
-                    ctx.layout_row(&[54, 54], 0);
+                    ctx.layout_row(&[58, 54], 0);
     
                     if ctx.button("Button 3") {
                         self.write_log("Pressed button 3");
@@ -302,11 +308,29 @@ impl Demo {
             rect(380, 250, 390, 240),
             ContainerOptions::default()
         ) {
+            ctx.layout_row(&[55, -1], 0);
+            ctx.label("Theme:");
+
+            if ctx.w(Dropdown::new(&mut self.themes).visible_items(5)).submit {
+                let colors = match self.themes.index {
+                    1 => catppuccin::LATTE.widget_colors(),
+                    2 => catppuccin::FRAPPE.widget_colors(),
+                    3 => catppuccin::MACCHIATO.widget_colors(),
+                    4 => catppuccin::MOCHA.widget_colors(),
+                    _ => WidgetColors::default()
+                };
+
+                ctx.style.colors = colors;
+            }
+
+            ctx.layout_row(&[-1], -1);
+            ctx.begin_panel("Theme color editor", ContainerOptions::default());
+
             let index = ctx.current_container_index().unwrap();
             let width = ctx.get_container(index).body.w as f64 * 0.14;
             let width = width as i32;
 
-            ctx.layout_row(&[100, width, width, width, width, -1], 0);
+            ctx.layout_row(&[96, width, width, width, width, -1], 0);
 
             for i in 0..ctx.style.colors.0.len() {
                 let mut color = ctx.style.colors.0[i];
@@ -322,6 +346,7 @@ impl Demo {
                 ctx.draw_rect(next, color);
             }
 
+            ctx.end_panel();
             ctx.end_window();
         }
     }

@@ -2,6 +2,7 @@
 members = [
     "microui",
     "microui-app",
+    "microui-theme",
     "microui-femtovg",
     "microui-wgpu",
     "examples/demo"

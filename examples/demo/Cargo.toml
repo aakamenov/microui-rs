@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 microui-femtovg = { path = "../../microui-femtovg" }
+microui-theme = { path = "../../microui-theme" }

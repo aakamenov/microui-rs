@@ -431,6 +431,7 @@ name = "demo"
 version = "0.1.0"
 dependencies = [
  "microui-femtovg",
+ "microui-theme",
 ]
 
 [[package]]
@@ -941,6 +942,13 @@ dependencies = [
  "femtovg",
  "glutin",
  "microui-app",
+]
+
+[[package]]
+name = "microui-theme"
+version = "0.1.0"
+dependencies = [
+ "microui",
 ]
 
 [[package]]
