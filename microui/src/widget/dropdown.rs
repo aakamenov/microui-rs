@@ -38,7 +38,7 @@ impl<'a> Dropdown<'a> {
 
     /// The number of entries that are visible at once.
     /// Default is `3` although it's always capped to the
-    /// maximux number of entries.
+    /// maximum number of entries.
     #[inline]
     pub fn visible_items(mut self, count: u8) -> Self {
         self.visible_items = count;

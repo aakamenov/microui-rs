@@ -41,19 +41,11 @@ impl App for Demo {
 
 impl Demo {
     fn test_window(&mut self, ctx: &mut Context, shell: &mut Shell) {
-        if ctx.begin_window(
-            "Demo Window",
-            rect(40, 40, 335, 450),
-            ContainerOptions::default()
-        ) {
-            if let Some(index) = ctx.current_container_index() {
-                let container = ctx.get_container_mut(index);
-    
-                container.rect.w = container.rect.w.max(335);
-                container.rect.h = container.rect.h.max(300);
-            }
-    
-            if ctx.header("Window Info", ContainerOptions::default()).active {
+        Window::new("Demo Window", rect(40, 40, 335, 450))
+            .min_size(vec2(335, 300))
+            .show(ctx, |ctx| 
+        {
+            if ctx.header("Window Info", false) {
                 let index = ctx.current_container_index().unwrap();
                 let rect = ctx.get_container(index).rect;
     
@@ -66,10 +58,7 @@ impl Demo {
                 ctx.label(format!("{}, {}", rect.w, rect.h));
             }
     
-            let mut opts = ContainerOptions::default();
-            opts.set(ContainerOption::Expanded);
-    
-            if ctx.header("Test Buttons", opts).active {
+            if ctx.header("Test Buttons", true) {
                 ctx.layout_row(&[108, -110, -1], 0);
     
                 ctx.label("Test buttons:");
@@ -87,12 +76,13 @@ impl Demo {
                     self.write_log(format!("Selected {}", self.dropdown_state.selected()));
                 }
     
-                let popup_name = "Test Popup";
+                let popup = Popup::new("Test Popup");
+                
                 if ctx.button("Popup") {
-                    ctx.open_popup(popup_name);
+                    popup.open(ctx);
                 }
     
-                if ctx.begin_popup(popup_name) {
+                popup.show(ctx, |ctx| {
                     if ctx.button("Hello") {
                         self.write_log("Hello");
                     }
@@ -100,17 +90,15 @@ impl Demo {
                     if ctx.button("World") {
                         self.write_log("World");
                     }
-    
-                    ctx.end_popup();
-                }
+                });
             }
     
-            if ctx.header("Tree and Text", opts).active {
+            if ctx.header("Tree and Text", true) {
                 ctx.layout_row(&[140, -1], 0);
                 ctx.layout_begin_column();
     
-                if ctx.begin_treenode("Test 1", ContainerOptions::default()).active {
-                    if ctx.begin_treenode("Test 1a", ContainerOptions::default()).active {
+                Treenode::new("Test 1").show(ctx, |ctx| {
+                    Treenode::new("Test 1a").show(ctx, |ctx| {
                         if ctx.clickable_label("Click me!") {
                             self.write_log("Clicked on label 1");
                         }
@@ -118,11 +106,9 @@ impl Demo {
                         if ctx.clickable_label("Click me 2!") {
                             self.write_log("Clicked on label 2");
                         }
-    
-                        ctx.end_treenode();
-                    }
-    
-                    if ctx.begin_treenode("Test 1b", ContainerOptions::default()).active {
+                    });
+
+                    Treenode::new("Test 1b").show(ctx, |ctx| {
                         if ctx.button("Button 1") {
                             self.write_log("Pressed button 1");
                         }
@@ -130,14 +116,10 @@ impl Demo {
                         if ctx.button("Button 2") {
                             self.write_log("Pressed button 2");
                         }
+                    });
+                });
     
-                        ctx.end_treenode();
-                    }
-    
-                    ctx.end_treenode();
-                }
-    
-                if ctx.begin_treenode("Test 2", ContainerOptions::default()).active {
+                Treenode::new("Test 2").show(ctx, |ctx| {
                     ctx.layout_row(&[58, 54], 0);
     
                     if ctx.button("Button 3") {
@@ -155,18 +137,14 @@ impl Demo {
                     if ctx.button("Button 6") {
                         self.write_log("Pressed button 6");
                     }
-    
-                    ctx.end_treenode();
-                }
-    
-                if ctx.begin_treenode("Test 3", ContainerOptions::default()).active {
+                });
+
+                Treenode::new("Test 3").show(ctx, |ctx| {
                     ctx.checkbox("Checkbox 1", &mut self.checkboxes[0]);
                     ctx.checkbox("Checkbox 2", &mut self.checkboxes[1]);
                     ctx.checkbox("Checkbox 3", &mut self.checkboxes[2]);
+                });
     
-                    ctx.end_treenode();
-                }
-
                 ctx.layout_end_column();
 
                 ctx.layout_begin_column();
@@ -176,7 +154,7 @@ impl Demo {
                 ctx.layout_end_column();
             }
 
-            if ctx.header("Background Color", opts).active {
+            if ctx.header("Background Color", true) {
                 ctx.layout_row(&[-78, -1], 74);
 
                 ctx.layout_begin_column();
@@ -233,25 +211,22 @@ impl Demo {
 
                 ctx.draw_widget_text(color_label, rect, WidgetColor::Text, opts);
             }
-    
-            ctx.end_window();
-        }
+        });
     }
 
     fn log_window(&mut self, ctx: &mut Context) {
-        if ctx.begin_window(
-            "Log Window",
-            rect(380, 40, 390, 200),
-            ContainerOptions::default()
-        ) {
+        let rect = rect(380, 40, 390, 200);
+
+        Window::new("Log Window", rect).show(ctx, |ctx| {
             ctx.layout_row(&[-1], -25);
 
-            ctx.begin_panel("Log Output", ContainerOptions::default());
-            let index = ctx.current_container_index().unwrap();
-            ctx.layout_row(&[-1], -1);
-            
-            ctx.text(self.log.as_str());
-            ctx.end_panel();
+            let mut index = 0;
+            Panel::new("Log Output").show(ctx, |ctx| {
+                index = ctx.current_container_index().unwrap();
+                ctx.layout_row(&[-1], -1);
+                
+                ctx.text(self.log.as_str());
+            });
 
             if self.log_updated {
                 // Scroll to bottom
@@ -280,9 +255,7 @@ impl Demo {
 
                 self.textbox_state.clear();
             }
-            
-            ctx.end_window();
-        }
+        });
     }
 
     fn style_window(&mut self, ctx: &mut Context) {
@@ -303,11 +276,12 @@ impl Demo {
             "scroll thumb:"
         ];
 
-        if ctx.begin_window(
-            "Style Editor",
-            rect(380, 250, 390, 240),
-            ContainerOptions::default()
-        ) {
+        let rect = rect(380, 250, 390, 240);
+
+        Window::new("Style Editor", rect)
+            .min_size(vec2(390, 240))
+            .show(ctx, |ctx|
+        {
             ctx.layout_row(&[55, -1], 0);
             ctx.label("Theme:");
 
@@ -324,31 +298,29 @@ impl Demo {
             }
 
             ctx.layout_row(&[-1], -1);
-            ctx.begin_panel("Theme color editor", ContainerOptions::default());
 
-            let index = ctx.current_container_index().unwrap();
-            let width = ctx.get_container(index).body.w as f64 * 0.14;
-            let width = width as i32;
-
-            ctx.layout_row(&[96, width, width, width, width, -1], 0);
-
-            for i in 0..ctx.style.colors.0.len() {
-                let mut color = ctx.style.colors.0[i];
-
-                ctx.label(LABELS[i]);
-                self.style_slider(ctx, &mut color.r, i);
-                self.style_slider(ctx, &mut color.g, i);
-                self.style_slider(ctx, &mut color.b, i);
-                self.style_slider(ctx, &mut color.a, i);
-                ctx.style.colors.0[i] = color;
-                
-                let next = ctx.layout_next();
-                ctx.draw_rect(next, color);
-            }
-
-            ctx.end_panel();
-            ctx.end_window();
-        }
+            Panel::new("Theme color editor").show(ctx, |ctx| {
+                let index = ctx.current_container_index().unwrap();
+                let width = ctx.get_container(index).body.w as f64 * 0.14;
+                let width = width as i32;
+    
+                ctx.layout_row(&[96, width, width, width, width, -1], 0);
+    
+                for i in 0..ctx.style.colors.0.len() {
+                    let mut color = ctx.style.colors.0[i];
+    
+                    ctx.label(LABELS[i]);
+                    self.style_slider(ctx, &mut color.r, i);
+                    self.style_slider(ctx, &mut color.g, i);
+                    self.style_slider(ctx, &mut color.b, i);
+                    self.style_slider(ctx, &mut color.a, i);
+                    ctx.style.colors.0[i] = color;
+                    
+                    let next = ctx.layout_next();
+                    ctx.draw_rect(next, color);
+                }
+            });
+        });
     }
 
     #[inline]

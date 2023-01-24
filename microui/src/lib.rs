@@ -3,6 +3,7 @@
 
 pub mod const_vec;
 pub mod widget;
+mod container;
 mod text_buf;
 mod geometry;
 mod style;
@@ -13,6 +14,7 @@ pub use style::*;
 pub use id::Id;
 pub use text_buf::TextBuf;
 pub use widget::{textbox, dropdown, *};
+pub use container::*;
 
 use std::{ptr, cmp, mem, ops::Range, hash::Hash};
 
@@ -145,8 +147,7 @@ pub enum ContainerOption {
     HoldFocus = 1 << 8,
     AutoSize = 1 << 9,
     Popup = 1 << 10,
-    Closed = 1 << 11,
-    Expanded = 1 << 12,
+    Closed = 1 << 11
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -1281,33 +1282,9 @@ impl Context {
     pub fn header(
         &mut self,
         label: impl Into<String>,
-        options: ContainerOptions
-    ) -> Response {
-        self.header_impl(label, false, options)
-    }
-
-    pub fn begin_treenode(
-        &mut self,
-        label: impl Into<String>,
-        options: ContainerOptions
-    ) -> Response {
-        let resp = self.header_impl(label, true, options);
-
-        if resp.active {
-            if let Some(layout) = self.layout_stack.last_mut() {
-                layout.indent += self.style.indent as i32;
-                self.id_stack.push(self.last_id.unwrap_or_default());
-            }
-        }
-
-        resp
-    }
-
-    pub fn end_treenode(&mut self) {
-        if let Some(layout) = self.layout_stack.last_mut() {
-            layout.indent -= self.style.indent as i32;
-            self.pop_id();
-        }
+        expanded: bool
+    ) -> bool {
+        self.header_impl(label, false, expanded)
     }
 
     pub fn begin_window(
@@ -1451,42 +1428,6 @@ impl Context {
         self.end_root_container();
     }
 
-    pub fn open_popup(&mut self, name: &str) {
-        let id = self.create_id(&name);
-
-        if let Some(cnt_idx) = self.get_container_impl(
-            id,
-            ContainerOptions::default()
-        ) {
-            // Set as hover root so popup isn't closed in begin_window()
-            self.hover_root = Some(cnt_idx);
-            self.next_hover_root = Some(cnt_idx);
-
-            // Position at mouse cursor, open and bring to front.
-            self.containers[cnt_idx].rect = rect(self.mouse_pos.x, self.mouse_pos.y, 1, 1);
-            self.containers[cnt_idx].open = true;
-
-            self.bring_to_front(cnt_idx);
-        }
-    }
-
-    pub fn begin_popup(&mut self, name: impl Into<String>) -> bool {
-        let mut options = ContainerOptions::default();
-        options.set(ContainerOption::Popup);
-        options.set(ContainerOption::AutoSize);
-        options.set(ContainerOption::NoResize);
-        options.set(ContainerOption::NoScroll);
-        options.set(ContainerOption::NoTitle);
-        options.set(ContainerOption::Closed);
-
-        self.begin_window(name, Rect::default(), options)
-    }
-    
-    #[inline]
-    pub fn end_popup(&mut self) {
-        self.end_window();
-    }
-
     pub fn begin_panel(
         &mut self,
         name: impl Into<String>,
@@ -1528,15 +1469,15 @@ impl Context {
         &mut self,
         label: impl Into<String>,
         is_treenode: bool,
-        options: ContainerOptions
-    ) -> Response {
+        expanded: bool
+    ) -> bool {
         let label: String = label.into();
         let id = self.create_id(&label);
 
         let index = self.treenode_pool.find_by_id(id);
         let mut active = index.is_some();
 
-        let expanded = if options.is_set(ContainerOption::Expanded) {
+        let expanded = if expanded {
             !active
         } else {
             active
@@ -1583,13 +1524,11 @@ impl Context {
 
         self.draw_widget_text(label, r, WidgetColor::Text, ContainerOptions::default());
 
-        let mut resp = Response::default();
-
         if expanded {
-            resp.active = true;
+            true
+        } else {
+            false
         }
-
-        resp
     }
 
     fn scrollbars(
