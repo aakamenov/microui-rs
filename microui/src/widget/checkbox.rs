@@ -31,7 +31,7 @@ impl<'a> Widget for Checkbox<'a> {
 
         ctx.update_widget(id, r, WidgetInteraction::default());
 
-        if ctx.mouse_released.is_set(MouseButton::Left) && ctx.is_hovered(id) {
+        if ctx.mouse_pressed.is_set(MouseButton::Left) && ctx.is_hovered(id) {
             resp.change = true;
             *self.checked = !*self.checked;
         }

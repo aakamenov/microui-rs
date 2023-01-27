@@ -100,7 +100,6 @@ pub struct Context {
     scroll_delta: Vec2,
     mouse_down: MouseState,
     mouse_pressed: MouseState,
-    mouse_released: MouseState,
     key_down: ModKeyState,
     key_pressed: ModKeyState,
     text_input: ConstStr<MAX_TEXT_STORE>
@@ -318,7 +317,6 @@ impl Context {
         ptr.scroll_delta = Vec2::ZERO;
         ptr.mouse_down = MouseState::default();
         ptr.mouse_pressed = MouseState::default();
-        ptr.mouse_released = MouseState::default();
         ptr.key_down = ModKeyState::default();
         ptr.key_pressed = ModKeyState::default();
 
@@ -375,7 +373,6 @@ impl Context {
 
         self.key_pressed = ModKeyState::default();
         self.mouse_pressed = MouseState::default();
-        self.mouse_released = MouseState::default();
         self.scroll_delta = Vec2::ZERO;
         self.last_mouse_pos = self.mouse_pos;
         self.text_input.clear();
@@ -551,11 +548,6 @@ impl Context {
     }
 
     #[inline]
-    pub fn mouse_any_released(&self) -> bool {
-        self.mouse_released != MouseState::default()
-    }
-
-    #[inline]
     pub fn mouse_pressed(&self, btn: MouseButton) -> bool {
         self.mouse_pressed.is_set(btn)
     }
@@ -563,11 +555,6 @@ impl Context {
     #[inline]
     pub fn mouse_down(&self, btn: MouseButton) -> bool {
         self.mouse_down.is_set(btn)
-    }
-
-    #[inline]
-    pub fn mouse_released(&self, btn: MouseButton) -> bool {
-        self.mouse_released.is_set(btn)
     }
 
     #[inline]
@@ -842,7 +829,6 @@ impl Context {
     pub fn input_mouse_up(&mut self, pos: Vec2, btn: MouseButton) {
         self.input_mouse_move(pos);
         self.mouse_down.unset(btn);
-        self.mouse_released.set(btn);
     }
 
     #[inline]
@@ -1363,7 +1349,7 @@ impl Context {
                     WidgetInteraction::from(options).cursor(CursorIcon::Hand)
                 );
 
-                if self.is_hovered(id) && self.mouse_released.is_set(MouseButton::Left) {
+                if self.mouse_pressed.is_set(MouseButton::Left) && self.is_focused(id) {
                     self.containers[cnt_idx].open = false;
                 }
             }
