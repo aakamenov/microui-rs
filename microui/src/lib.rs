@@ -1665,7 +1665,7 @@ macro_rules! scrollbar {
 
                 let mut base = *body;
                 base.$x = body.$x + body.$w;
-                base.w = self.style.scrollbar_size as i32;
+                base.$w = self.style.scrollbar_size as i32;
 
                 self.update_widget(id, base, WidgetInteraction::default());
 
