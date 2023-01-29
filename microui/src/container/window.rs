@@ -94,8 +94,7 @@ impl Window {
     pub fn show(self, ctx: &mut Context, contents: impl FnOnce(&mut Context)) {
         if ctx.begin_window(self.title, self.rect, self.options) {
             if self.min_size.is_some() || self.max_size.is_some() {
-                let index = ctx.current_container_index().unwrap();
-                let container = ctx.get_container_mut(index);
+                let container = ctx.current_container_mut();
     
                 let min = self.min_size.unwrap_or(Vec2::ZERO);
                 let max = self.max_size.unwrap_or(vec2(i32::MAX, i32::MAX));

@@ -583,7 +583,7 @@ impl Context {
 
     #[inline]
     pub fn push_clip_rect(&mut self, rect: Rect) {
-        let last = self.get_clip_rect();
+        let last = self.clip_rect();
         self.clip_stack.push(rect.intersect(last));
     }
 
@@ -598,7 +598,7 @@ impl Context {
     }
 
     #[inline]
-    pub fn get_clip_rect(&self) -> Rect {
+    pub fn clip_rect(&self) -> Rect {
         *self.clip_stack.last().unwrap()
     }
 }
@@ -609,7 +609,7 @@ impl Context {
 
 impl Context {
     pub fn draw_rect(&mut self, rect: Rect, color: Color) {
-        let rect = rect.intersect(self.get_clip_rect());
+        let rect = rect.intersect(self.clip_rect());
 
         if rect.w > 0 && rect.h > 0 {
             self.command_list.push(Command::Rect {
@@ -641,7 +641,7 @@ impl Context {
         match clip {
             Clip::None => {},
             Clip::All => { return; },
-            Clip::Part => self.set_clip(self.get_clip_rect())
+            Clip::Part => self.set_clip(self.clip_rect())
         }
 
         self.command_list.push(Command::Text {
@@ -662,7 +662,7 @@ impl Context {
         match clip {
             Clip::None => {},
             Clip::All => { return; },
-            Clip::Part => self.set_clip(self.get_clip_rect())
+            Clip::Part => self.set_clip(self.clip_rect())
         }
 
         self.command_list.push(Command::Icon {
@@ -689,6 +689,20 @@ impl Context {
     }
 
     #[inline]
+    pub fn current_container(&self) -> &Container {
+        let index = self.current_container_index().unwrap();
+
+        &self.containers[index]
+    }
+
+    #[inline]
+    pub fn current_container_mut(&mut self) -> &mut Container {
+        let index = self.current_container_index().unwrap();
+
+        &mut self.containers[index]
+    }
+
+    #[inline]
     pub fn container_index_by_name(
         &mut self,
         name: &str,
@@ -696,16 +710,16 @@ impl Context {
     ) -> Option<usize> {
         let id = self.create_id(&name);
 
-        self.get_container_impl(id, options)
+        self.get_container(id, options)
     }
 
     #[inline(always)]
-    pub fn get_container(&self, index: usize) -> &Container {
+    pub fn container(&self, index: usize) -> &Container {
         &self.containers[index]
     }
 
     #[inline(always)]
-    pub fn get_container_mut(&mut self, index: usize) -> &mut Container {
+    pub fn container_mut(&mut self, index: usize) -> &mut Container {
         &mut self.containers[index]
     }
 
@@ -720,7 +734,7 @@ impl Context {
         self.containers[index].zindex = self.last_zindex;
     }
 
-    fn get_container_impl(&mut self, id: Id, options: ContainerOptions) -> Option<usize> {
+    fn get_container(&mut self, id: Id, options: ContainerOptions) -> Option<usize> {
         let index = self.container_pool.find_by_id(id);
 
         if let Some(index) = index {
@@ -1096,7 +1110,7 @@ impl Context {
 
     pub fn is_mouse_over(&self, rect: Rect) -> bool {
         rect.overlaps(self.mouse_pos) &&
-            self.get_clip_rect().overlaps(self.mouse_pos) &&
+            self.clip_rect().overlaps(self.mouse_pos) &&
             self.in_hover_root()
     }
 
@@ -1283,7 +1297,7 @@ impl Context {
         assert!(!title.is_empty(), "Window title string is empty.");
 
         let id = self.create_id(&title);
-        let cnt_idx = self.get_container_impl(id, options);
+        let cnt_idx = self.get_container(id, options);
 
         if cnt_idx.is_none() {
             return false;
@@ -1423,7 +1437,7 @@ impl Context {
         assert!(!name.is_empty(), "Panel name string is empty.");
 
         let id = self.push_id(&name);
-        let cnt_idx = self.get_container_impl(id, options);
+        let cnt_idx = self.get_container(id, options);
 
         if cnt_idx.is_none() {
             return false;

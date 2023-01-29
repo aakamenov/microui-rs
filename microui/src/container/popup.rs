@@ -15,7 +15,7 @@ impl Popup {
     pub fn open(&self, ctx: &mut Context) {
         let id = ctx.create_id(&self.name);
 
-        if let Some(cnt_idx) = ctx.get_container_impl(
+        if let Some(cnt_idx) = ctx.get_container(
             id,
             ContainerOptions::default()
         ) {

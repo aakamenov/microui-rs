@@ -89,7 +89,7 @@ impl<'a> Widget for Dropdown<'a> {
         let name = format!("{:p}", self.state.entries.as_ptr());
         let id = ctx.create_id(&name);
 
-        if let Some(cnt_idx) = ctx.get_container_impl(id, ContainerOptions::default()) {
+        if let Some(cnt_idx) = ctx.get_container(id, ContainerOptions::default()) {
             let last = ctx.last_rect;
             let items = cmp::min(self.visible_items as usize, self.state.entries.len());
             let rect = rect(last.x, last.y + last.h, last.w, last.h * items as i32);
@@ -102,7 +102,7 @@ impl<'a> Widget for Dropdown<'a> {
                 ctx.next_hover_root = Some(cnt_idx);
     
                 // Open, position below the button and reset scroll
-                let container = ctx.get_container_mut(cnt_idx);
+                let container = ctx.container_mut(cnt_idx);
                 container.open = true;
                 container.rect = rect;
                 container.body = rect;

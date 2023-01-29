@@ -46,8 +46,7 @@ impl Demo {
             .show(ctx, |ctx| 
         {
             if ctx.header("Window Info", false) {
-                let index = ctx.current_container_index().unwrap();
-                let rect = ctx.get_container(index).rect;
+                let rect = ctx.current_container().rect;
     
                 ctx.layout_row(&[66, -1], 0);
     
@@ -230,7 +229,7 @@ impl Demo {
 
             if self.log_updated {
                 // Scroll to bottom
-                let panel = ctx.get_container_mut(index);
+                let panel = ctx.container_mut(index);
                 panel.scroll.y = panel.content_size.y;
 
                 self.log_updated = false;
@@ -300,8 +299,7 @@ impl Demo {
             ctx.layout_row(&[-1], -1);
 
             Panel::new("Theme color editor").show(ctx, |ctx| {
-                let index = ctx.current_container_index().unwrap();
-                let width = ctx.get_container(index).body.w as f64 * 0.14;
+                let width = ctx.current_container().body.w as f64 * 0.14;
                 let width = width as i32;
     
                 ctx.layout_row(&[96, width, width, width, width, -1], 0);
