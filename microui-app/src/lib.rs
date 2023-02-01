@@ -115,7 +115,7 @@ pub fn run<Renderer: MicrouiRenderer + 'static>(mut app: Box<dyn App>) {
             }
             WindowEvent::ReceivedCharacter(c) => {
                 // Winit also sends non-text characters here.
-                if c.is_alphanumeric() || c.is_ascii_punctuation() {
+                if c.is_alphanumeric() || c.is_ascii_punctuation() || *c == ' ' {
                     let mut buf = [0; 4];
                     let text = c.encode_utf8(&mut buf);
 
