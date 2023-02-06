@@ -10,4 +10,4 @@ wayland = ["winit/wayland"]
 
 [dependencies]
 microui = { path = "../microui" }
-winit = "0.26.1"
+winit = "0.28.1"

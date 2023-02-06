@@ -10,5 +10,7 @@ wayland = ["microui-app/wayland"]
 
 [dependencies]
 microui-app = { path = "../microui-app" }
-femtovg = { version = "0.3.7", default-features = false }
-glutin = "0.28.0"
+femtovg = { version = "0.6.0", default-features = false }
+glutin = "0.30.3"
+glutin-winit = "0.3.0"
+raw-window-handle = "0.5.0"
