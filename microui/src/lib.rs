@@ -1271,11 +1271,12 @@ impl Context {
     /// 
     /// Returns `true` if a value was selected.
     #[inline]
-    pub fn dropdown(
+    pub fn dropdown<T: AsRef<str>>(
         &mut self,
         state: &mut dropdown::State,
+        items: &[T]
     ) -> bool {
-        Dropdown::new(state).draw(self).submit
+        Dropdown::new(state, items).draw(self).submit
     }
 
     #[inline]

@@ -6,34 +6,43 @@ use crate::{
 };
 use super::{Widget, HorizontalAlign, Button};
 
-pub struct Dropdown<'a> {
+pub struct Dropdown<'a, T: AsRef<str>> {
     state: &'a mut State,
+    items: &'a [T],
+    selected_text: Option<String>,
     body: Button,
     content_options: ContainerOptions,
     visible_items: u8
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
 pub struct State {
     pub is_open: bool,
-    pub entries: Vec<String>,
     pub index: usize
 }
 
-impl<'a> Dropdown<'a> {
-    pub fn new(state: &'a mut State) -> Self {
-        assert!(!state.entries.is_empty());
-        assert!(state.index <= state.entries.len());
-
-        let label = &state.entries[state.index];
-        let body = Button::new(label);
+impl<'a, T: AsRef<str>> Dropdown<'a, T> {
+    pub fn new(state: &'a mut State, items: &'a [T]) -> Self {
+        assert!(!items.is_empty());
+        assert!(state.index <= items.len());
 
         Self {
             state,
-            body,
+            items,
+            selected_text: None,
+            body: Button::empty(),
             content_options: ContainerOptions::default(),
             visible_items: 3
         }
+    }
+
+    /// Override the text that the dropdown shows as selected.
+    /// By default shows the currently selected value.
+    #[inline]
+    pub fn selected_text(mut self, text: impl Into<String>) -> Self {
+        self.selected_text = Some(text.into());
+
+        self
     }
 
     /// The number of entries that are visible at once.
@@ -63,18 +72,15 @@ impl<'a> Dropdown<'a> {
 
         self
     }
-
-    #[inline]
-    pub fn no_frame(mut self) -> Self {
-        self.body = self.body.no_frame();
-
-        self
-    }
 }
 
-impl<'a> Widget for Dropdown<'a> {
+impl<'a, T: AsRef<str>> Widget for Dropdown<'a, T> {
     fn draw(self, ctx: &mut Context) -> Response {
-        let btn_resp = self.body.draw(ctx);
+        let label = self.selected_text.unwrap_or_else(||
+            self.items[self.state.index].as_ref().into()
+        );
+
+        let btn_resp = self.body.text(label).draw(ctx);
         let mut resp = Response::default();
 
         if btn_resp.submit {
@@ -86,12 +92,12 @@ impl<'a> Widget for Dropdown<'a> {
             return Response::default();
         }
 
-        let name = format!("{:p}", self.state.entries.as_ptr());
+        let name = format!("!dropdown{:p}", self.items.as_ptr());
         let id = ctx.create_id(&name);
 
         if let Some(cnt_idx) = ctx.get_container(id, ContainerOptions::default()) {
             let last = ctx.last_rect;
-            let items = cmp::min(self.visible_items as usize, self.state.entries.len());
+            let items = cmp::min(self.visible_items as usize, self.items.len());
             let rect = rect(last.x, last.y + last.h, last.w, last.h * items as i32);
     
             if btn_resp.submit {
@@ -124,8 +130,8 @@ impl<'a> Widget for Dropdown<'a> {
                 let spacing = ctx.style.spacing;
                 ctx.style.spacing = 0;
     
-                for (i, option) in self.state.entries.iter().enumerate() {
-                    if dropdown_entry(ctx, option, self.content_options) {
+                for (i, option) in self.items.iter().enumerate() {
+                    if dropdown_entry(ctx, option.as_ref(), self.content_options) {
                         self.state.index = i;
                         resp.submit = true;
                     }
@@ -150,24 +156,8 @@ impl<'a> Widget for Dropdown<'a> {
 
 impl State {
     #[inline]
-    pub fn new(entries: Vec<String>) -> Self {
-        assert!(!entries.is_empty());
-
-        Self {
-            entries,
-            is_open: false,
-            index: 0
-        }
-    }
-
-    #[inline]
     pub fn toggle(&mut self) {
         self.is_open = !self.is_open;
-    }
-
-    #[inline]
-    pub fn selected(&self) -> &str {
-        &self.entries[self.index]
     }
 }
 

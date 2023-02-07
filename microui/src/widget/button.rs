@@ -37,8 +37,15 @@ impl Button {
     pub fn empty() -> Self {
         Self {
             content: Content::Icon(Icon::None),
-            options: ContainerOptions::default()
+            options: ContainerOptions(ContainerOption::AlignCenter as u16)
         }
+    }
+
+    #[inline]
+    pub fn text(mut self, text: impl Into<String>) -> Self {
+        self.content = Content::Text(text.into());
+
+        self
     }
 
     #[inline]

@@ -12,17 +12,10 @@ struct Demo {
     log_updated: bool
 }
 
-fn main() {
-    const CHOICES: &[&str] = &["Option 1", "Option 2", "Option 3", "Option 4", "Option 5", "Option 6"];
-    const THEMES: &[&str] = &["Default", "Catppuccin Latte", "Catppuccin Frappe", "Catppuccin Macchiato", "Catppuccin Mocha"];
-    
+fn main() {    
     run(Box::new(Demo {
-        dropdown_state: dropdown::State::new(
-            Vec::from_iter(CHOICES.iter().map(|x| x.to_string()))
-        ),
-        themes: dropdown::State::new(
-            Vec::from_iter(THEMES.iter().map(|x| x.to_string()))
-        ),
+        dropdown_state: dropdown::State::default(),
+        themes: dropdown::State::default(),
         checkboxes: Default::default(),
         background: Color::rgb(90, 95, 100),
         textbox_state: ConstStr::new(), 
@@ -58,7 +51,7 @@ impl Demo {
             }
     
             if ctx.header("Test Buttons", true) {
-                ctx.layout_row(&[108, -110, -1], 0);
+                ctx.layout_row(&[108, -100, -1], 0);
     
                 ctx.label("Test buttons:");
                 if ctx.button("Button 1") {
@@ -71,8 +64,14 @@ impl Demo {
     
                 ctx.label("Popup widgets:");
                 
-                if ctx.dropdown(&mut self.dropdown_state) {
-                    self.write_log(format!("Selected {}", self.dropdown_state.selected()));
+                const CHOICES: &[&str] = &["Option 1", "Option 2", "Option 3", "Option 4", "Option 5", "Option 6"];
+
+                if ctx.w(
+                    Dropdown::new(&mut self.dropdown_state, CHOICES)
+                        .selected_text("Select option")
+                ).submit {
+                    let selected = self.dropdown_state.index;
+                    self.write_log(format!("Selected {}", CHOICES[selected]));
                 }
     
                 let popup = Popup::new("Test Popup");
@@ -284,7 +283,9 @@ impl Demo {
             ctx.layout_row(&[55, -1], 0);
             ctx.label("Theme:");
 
-            if ctx.w(Dropdown::new(&mut self.themes).visible_items(5)).submit {
+            const THEMES: &[&str] = &["Default", "Catppuccin Latte", "Catppuccin Frappe", "Catppuccin Macchiato", "Catppuccin Mocha"];
+
+            if ctx.w(Dropdown::new(&mut self.themes, THEMES).visible_items(5)).submit {
                 let colors = match self.themes.index {
                     1 => catppuccin::LATTE.widget_colors(),
                     2 => catppuccin::FRAPPE.widget_colors(),
