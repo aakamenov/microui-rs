@@ -1267,7 +1267,7 @@ impl Context {
         DragValue::new(value, step).draw(self).change
     }
 
-    /// Shorthand for `Dropdown::new(&mut state)`.
+    /// Shorthand for `Dropdown::new(&mut state, items)`.
     /// 
     /// Returns `true` if a value was selected.
     #[inline]

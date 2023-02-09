@@ -84,12 +84,13 @@ impl<'a, T: AsRef<str>> Widget for Dropdown<'a, T> {
         let mut resp = Response::default();
 
         if btn_resp.submit {
-            resp.change = true;
             self.state.toggle();
+            resp.active = self.state.is_open;
+            resp.change = true;
         }
 
         if !self.state.is_open {
-            return Response::default();
+            return resp;
         }
 
         let name = format!("!dropdown{:p}", self.items.as_ptr());
@@ -122,6 +123,8 @@ impl<'a, T: AsRef<str>> Widget for Dropdown<'a, T> {
     
             let padding = ctx.style.padding;
             ctx.style.padding = 0;
+
+            let mut selected = false;
     
             if ctx.begin_window(name, rect, options) {
                 ctx.style.padding = padding;
@@ -132,8 +135,12 @@ impl<'a, T: AsRef<str>> Widget for Dropdown<'a, T> {
     
                 for (i, option) in self.items.iter().enumerate() {
                     if dropdown_entry(ctx, option.as_ref(), self.content_options) {
-                        self.state.index = i;
-                        resp.submit = true;
+                        selected = true;
+
+                        if i != self.state.index {
+                            self.state.index = i;
+                            resp.submit = true;
+                        }
                     }
                 }
     
@@ -143,10 +150,12 @@ impl<'a, T: AsRef<str>> Widget for Dropdown<'a, T> {
     
             // Close if a value was selected or there was a
             // click outside of the dropdown area.
-            if resp.submit || !ctx.containers[cnt_idx].open {
+            if selected || !ctx.containers[cnt_idx].open {
                 ctx.containers[cnt_idx].open = false;
-                resp.change = true;
                 self.state.toggle();
+
+                resp.change = true;
+                resp.active = false;
             }
         }
 

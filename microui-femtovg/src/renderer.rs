@@ -56,7 +56,6 @@ impl MicrouiRenderer for Renderer {
         event_loop: &EventLoop<()>
     ) -> Self {
         let template = ConfigTemplateBuilder::new()
-
             .prefer_hardware_accelerated(Some(true))
             .with_alpha_size(8);
 
