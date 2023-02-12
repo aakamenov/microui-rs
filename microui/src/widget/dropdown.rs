@@ -76,6 +76,8 @@ impl<'a, T: AsRef<str>> Dropdown<'a, T> {
 
 impl<'a, T: AsRef<str>> Widget for Dropdown<'a, T> {
     fn draw(self, ctx: &mut Context) -> Response {
+        let ptr = &self as *const _;
+
         let label = self.selected_text.unwrap_or_else(||
             self.items[self.state.index].as_ref().into()
         );
@@ -93,7 +95,7 @@ impl<'a, T: AsRef<str>> Widget for Dropdown<'a, T> {
             return resp;
         }
 
-        let name = format!("!dropdown{:p}", self.items.as_ptr());
+        let name = format!("!dropdown{:p}", ptr);
         let id = ctx.create_id(&name);
 
         if let Some(cnt_idx) = ctx.get_container(id, ContainerOptions::default()) {

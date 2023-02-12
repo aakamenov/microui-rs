@@ -195,7 +195,7 @@ pub enum LayoutType {
     Absolute
 }
 
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, Debug)]
 pub struct Container {
     pub rect: Rect,
     pub body: Rect,
