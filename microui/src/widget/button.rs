@@ -7,7 +7,8 @@ use super::{Widget, HorizontalAlign};
 #[derive(Clone, PartialEq, Debug)]
 pub struct Button {
     content: Content,
-    options: ContainerOptions
+    options: ContainerOptions,
+    hand_cursor: bool
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -21,7 +22,8 @@ impl Button {
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             content: Content::Text(text.into()),
-            options: ContainerOptions(ContainerOption::AlignCenter as u16)
+            options: ContainerOptions(ContainerOption::AlignCenter as u16),
+            hand_cursor: false
         }
     }
 
@@ -29,7 +31,8 @@ impl Button {
     pub fn icon(icon: Icon) -> Self {
         Self {
             content: Content::Icon(icon),
-            options: ContainerOptions(ContainerOption::AlignCenter as u16)
+            options: ContainerOptions(ContainerOption::AlignCenter as u16),
+            hand_cursor: false
         }
     }
 
@@ -37,13 +40,23 @@ impl Button {
     pub fn empty() -> Self {
         Self {
             content: Content::Icon(Icon::None),
-            options: ContainerOptions(ContainerOption::AlignCenter as u16)
+            options: ContainerOptions(ContainerOption::AlignCenter as u16),
+            hand_cursor: false
         }
     }
 
     #[inline]
     pub fn text(mut self, text: impl Into<String>) -> Self {
         self.content = Content::Text(text.into());
+
+        self
+    }
+
+    /// Change the cursor icon to a hand
+    /// when hovering over the button.
+    #[inline]
+    pub fn with_cursor(mut self) -> Self {
+        self.hand_cursor = true;
 
         self
     }
@@ -91,7 +104,14 @@ impl Widget for Button {
         };
 
         let rect = ctx.layout_next();
-        ctx.update_widget(id, rect, WidgetInteraction::from(self.options));
+        let interaction = if self.hand_cursor {
+            WidgetInteraction::from(self.options)
+                .cursor(crate::CursorIcon::Hand)
+        } else {
+            WidgetInteraction::from(self.options)
+        };
+
+        ctx.update_widget(id, rect, interaction);
 
         if ctx.mouse_pressed(MouseButton::Left) && ctx.is_focused(id) {
             resp.submit = true;
