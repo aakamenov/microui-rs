@@ -136,7 +136,7 @@ impl<'a, T: AsRef<str>> Widget for Dropdown<'a, T> {
                 ctx.style.spacing = 0;
     
                 for (i, option) in self.items.iter().enumerate() {
-                    if dropdown_entry(ctx, option.as_ref(), self.content_options) {
+                    if dropdown_entry(ctx, i, option.as_ref(), self.content_options) {
                         selected = true;
 
                         if i != self.state.index {
@@ -172,9 +172,9 @@ impl State {
     }
 }
 
-fn dropdown_entry(ctx: &mut Context, text: &str, options: ContainerOptions) -> bool {
+fn dropdown_entry(ctx: &mut Context, index: usize, text: &str, options: ContainerOptions) -> bool {
     let mut resp = false;
-    let id = ctx.create_id(&text);
+    let id = ctx.create_id(&[text.as_ptr() as usize, index]);
 
     let rect = ctx.layout_next();
     ctx.update_widget(id, rect, WidgetInteraction::default());
