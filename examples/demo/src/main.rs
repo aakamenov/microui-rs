@@ -15,7 +15,7 @@ struct Demo {
 fn main() {    
     run(Box::new(Demo {
         dropdown_state: dropdown::State::default(),
-        themes: dropdown::State::default(),
+        themes: dropdown::State::with_selection(0),
         checkboxes: Default::default(),
         background: Color::rgb(90, 95, 100),
         textbox_state: ConstStr::new(), 
@@ -68,9 +68,9 @@ impl Demo {
 
                 if ctx.w(
                     Dropdown::new(&mut self.dropdown_state, CHOICES)
-                        .selected_text("Select option")
+                        .placeholder_text("Select option", true)
                 ).submit {
-                    let selected = self.dropdown_state.index;
+                    let selected = self.dropdown_state.index.unwrap();
                     self.write_log(format!("Selected {}", CHOICES[selected]));
                 }
     
@@ -286,7 +286,7 @@ impl Demo {
             const THEMES: &[&str] = &["Default", "Catppuccin Latte", "Catppuccin Frappe", "Catppuccin Macchiato", "Catppuccin Mocha"];
 
             if ctx.w(Dropdown::new(&mut self.themes, THEMES).visible_items(5)).submit {
-                let colors = match self.themes.index {
+                let colors = match self.themes.index.unwrap() {
                     1 => catppuccin::LATTE.widget_colors(),
                     2 => catppuccin::FRAPPE.widget_colors(),
                     3 => catppuccin::MACCHIATO.widget_colors(),

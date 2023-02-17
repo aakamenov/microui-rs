@@ -1,4 +1,4 @@
-use std::cmp;
+use std::{cmp, borrow::Cow};
 
 use crate::{
     Context, ContainerOptions, ContainerOption, WidgetInteraction,
@@ -9,7 +9,7 @@ use super::{Widget, HorizontalAlign, Button};
 pub struct Dropdown<'a, T: AsRef<str>> {
     state: &'a mut State,
     items: &'a [T],
-    selected_text: Option<String>,
+    placeholder: Option<Cow<'a, str>>,
     body: Button,
     content_options: ContainerOptions,
     visible_items: u8
@@ -18,29 +18,44 @@ pub struct Dropdown<'a, T: AsRef<str>> {
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
 pub struct State {
     pub is_open: bool,
-    pub index: usize
+    pub index: Option<usize>
 }
 
 impl<'a, T: AsRef<str>> Dropdown<'a, T> {
     pub fn new(state: &'a mut State, items: &'a [T]) -> Self {
-        assert!(!items.is_empty());
-        assert!(state.index <= items.len());
+        if let Some(index) = state.index {
+            assert!(index <= items.len());
+        }
 
         Self {
             state,
             items,
-            selected_text: None,
+            placeholder: None,
             body: Button::empty(),
             content_options: ContainerOptions::default(),
             visible_items: 3
         }
     }
 
-    /// Override the text that the dropdown shows as selected.
-    /// By default shows the currently selected value.
+    /// Set the text that is shown when no value is selected.
+    /// `always_show` determines whether to show this text
+    /// even when there is a value currently selected.
     #[inline]
-    pub fn selected_text(mut self, text: impl Into<String>) -> Self {
-        self.selected_text = Some(text.into());
+    pub fn placeholder_text(
+        mut self,
+        text: impl Into<Cow<'a, str>>,
+        always_show: bool
+    ) -> Self {
+        self.placeholder = Some(if always_show {
+            text.into()
+        } else {
+            match self.state.index {
+                Some(index) => Cow::Borrowed(
+                    self.items[index].as_ref()
+                ),
+                None => text.into()
+            }
+        });
 
         self
     }
@@ -78,9 +93,14 @@ impl<'a, T: AsRef<str>> Widget for Dropdown<'a, T> {
     fn draw(self, ctx: &mut Context) -> Response {
         let ptr = &self as *const _;
 
-        let label = self.selected_text.unwrap_or_else(||
-            self.items[self.state.index].as_ref().into()
-        );
+        let label = if let Some(text) = self.placeholder {
+            text.into_owned()
+        } else {
+            match self.state.index {
+                Some(index) => self.items[index].as_ref().into(),
+                None => String::new()
+            }
+        };
 
         let btn_resp = self.body.text(label).draw(ctx);
         let mut resp = Response::default();
@@ -126,8 +146,6 @@ impl<'a, T: AsRef<str>> Widget for Dropdown<'a, T> {
             let padding = ctx.style.padding;
             ctx.style.padding = 0;
 
-            let mut selected = false;
-    
             if ctx.begin_window(name, rect, options) {
                 ctx.style.padding = padding;
                 ctx.layout_row(&[-1], 0);
@@ -137,12 +155,8 @@ impl<'a, T: AsRef<str>> Widget for Dropdown<'a, T> {
     
                 for (i, option) in self.items.iter().enumerate() {
                     if dropdown_entry(ctx, i, option.as_ref(), self.content_options) {
-                        selected = true;
-
-                        if i != self.state.index {
-                            self.state.index = i;
-                            resp.submit = true;
-                        }
+                        self.state.index = Some(i);
+                        resp.submit = true;
                     }
                 }
     
@@ -152,7 +166,7 @@ impl<'a, T: AsRef<str>> Widget for Dropdown<'a, T> {
     
             // Close if a value was selected or there was a
             // click outside of the dropdown area.
-            if selected || !ctx.containers[cnt_idx].open {
+            if resp.submit || !ctx.containers[cnt_idx].open {
                 ctx.containers[cnt_idx].open = false;
                 self.state.toggle();
 
@@ -166,6 +180,14 @@ impl<'a, T: AsRef<str>> Widget for Dropdown<'a, T> {
 }
 
 impl State {
+    #[inline]
+    pub fn with_selection(selected: usize) -> Self {
+        Self {
+            is_open: false,
+            index: Some(selected)
+        }
+    }
+
     #[inline]
     pub fn toggle(&mut self) {
         self.is_open = !self.is_open;
